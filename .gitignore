@@ -1,0 +1,45 @@
+# Security & Private Credentials
+api_keys.json
+msgood_login*.dat
+settings.json
+learned.json
+keyword_ledger*.json
+stock_sync.json
+telegram*.json
+telegram*.dat
+*.dat
+*.bak*
+*.log
+jobs/
+
+# Build outputs
+build/
+bin/
+obj/
+dist_release/
+temp_update/
+temp_full/
+.gradle/
+*.exe.old
+app/build/
+app/dist_release/
+app/temp_update/
+app/temp_full/
+
+# Binary packages & archives
+*.zip
+*.apk
+
+# Root & build binaries (exclude Roslyn tools & lib)
+*.exe
+!app/tools/**/*.exe
+
+*.dll
+!app/lib/*.dll
+!app/tools/**/*.dll
+
+# IDE & Editor files
+.vs/
+*.user
+*.suo
+.idea/

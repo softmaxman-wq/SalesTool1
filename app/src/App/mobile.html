@@ -1,0 +1,280 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>판매도구</title>
+<style>
+:root { --bg:#f4f6fa; --card:#fff; --ink:#1d2433; --sub:#6b7486; --line:#e3e7ef; --accent:#2f5bd3; --ok:#1f8a4c; --warn:#c2410c; --bad:#b91c1c; }
+@media (prefers-color-scheme: dark) { :root { --bg:#12151c; --card:#1b1f29; --ink:#e8ebf2; --sub:#9aa3b5; --line:#2a3040; --accent:#7aa2ff; --ok:#4ade80; --warn:#fb923c; --bad:#f87171; } }
+* { box-sizing: border-box; }
+body { margin:0; background:var(--bg); color:var(--ink); font:15px/1.45 -apple-system, "Noto Sans KR", "Malgun Gothic", sans-serif; padding-bottom:72px; }
+header { position:sticky; top:0; background:var(--card); border-bottom:1px solid var(--line); padding:12px 16px; display:flex; align-items:center; gap:8px; z-index:5; }
+header h1 { font-size:17px; margin:0; flex:1; }
+.dot { width:9px; height:9px; border-radius:50%; background:var(--sub); }
+.dot.on { background:var(--ok); } .dot.off { background:var(--bad); }
+main { padding:12px 16px; max-width:720px; margin:0 auto; }
+.card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:12px 14px; margin-bottom:10px; }
+.row { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+.grid { display:grid; grid-template-columns:repeat(3,1fr); gap:8px; }
+.stat { text-align:center; } .stat b { display:block; font-size:22px; } .stat span { color:var(--sub); font-size:12px; }
+button { font:inherit; border:0; border-radius:10px; padding:10px 14px; background:var(--accent); color:#fff; font-weight:600; }
+button.ghost { background:transparent; color:var(--accent); border:1px solid var(--line); }
+button.warn { background:var(--warn); }
+button:disabled { opacity:.5; }
+/* 누른 느낌: 눌린 동안 살짝 작아지고 진해짐 */
+button { transition:transform .08s, filter .08s, background-color .08s; -webkit-tap-highlight-color:transparent; }
+button:active { transform:scale(.94); filter:brightness(.85); }
+button.ghost:active { background:var(--line); }
+/* 새로고침 중: 점선 원이 돌아감 */
+#rf { display:inline-flex; align-items:center; gap:6px; }
+#rf .spin { display:none; width:14px; height:14px; border:2px dotted var(--accent); border-radius:50%; animation:rot .8s linear infinite; }
+#rf.busy { background:var(--line); }
+#rf.busy .spin { display:inline-block; }
+@keyframes rot { to { transform:rotate(360deg); } }
+.spin-i { display:inline-block; vertical-align:-2px; width:12px; height:12px; border:2px dotted var(--accent); border-radius:50%; animation:rot .8s linear infinite; }
+input, textarea { font:inherit; width:100%; padding:10px 12px; border:1px solid var(--line); border-radius:10px; background:var(--bg); color:var(--ink); }
+.sub { color:var(--sub); font-size:13px; }
+.tag { display:inline-block; font-size:12px; padding:2px 8px; border-radius:999px; background:var(--bg); border:1px solid var(--line); margin:2px 4px 2px 0; }
+.st-ok { color:var(--ok); } .st-warn { color:var(--warn); } .st-bad { color:var(--bad); }
+.item { padding:10px 0; border-top:1px solid var(--line); } .item:first-child { border-top:0; }
+.name { font-weight:600; word-break:keep-all; }
+.log { font:12px/1.5 ui-monospace, Consolas, monospace; white-space:pre-wrap; color:var(--sub); max-height:260px; overflow:auto; }
+nav { position:fixed; bottom:0; left:0; right:0; background:var(--card); border-top:1px solid var(--line); display:flex; padding-bottom:env(safe-area-inset-bottom); }
+nav a { flex:1; text-align:center; padding:10px 0 12px; color:var(--sub); text-decoration:none; font-size:13px; }
+nav a.on { color:var(--accent); font-weight:700; }
+img.rep { width:100%; max-width:360px; border-radius:10px; border:1px solid var(--line); display:block; margin:8px 0; }
+/* 추가이미지: 2열 격자, 누르면 화면 가득 */
+.xs { display:grid; grid-template-columns:repeat(2,1fr); gap:8px; margin-top:8px; }
+.xs figure { margin:0; position:relative; }
+.xs img { width:100%; aspect-ratio:1; object-fit:contain; background:#fff; border:1px solid var(--line); border-radius:8px; display:block; }
+.xs figcaption { position:absolute; left:6px; top:6px; background:rgba(0,0,0,.6); color:#fff; font-size:12px; padding:1px 7px; border-radius:999px; }
+#zoom { position:fixed; inset:0; background:rgba(0,0,0,.88); display:none; align-items:center; justify-content:center; z-index:20; padding:12px; }
+#zoom img { max-width:100%; max-height:100%; background:#fff; }
+#zoom .zp { position:absolute; top:50%; left:4px; transform:translateY(-50%); color:#fff; font-size:40px; line-height:1; padding:16px 10px; opacity:.75; user-select:none; }
+#zoom .zr { left:auto; right:4px; }
+#zn { position:absolute; bottom:calc(20px + env(safe-area-inset-bottom)); left:0; right:0; text-align:center; color:#fff; font-size:14px; }
+.toast { position:fixed; left:16px; right:16px; bottom:84px; background:#222; color:#fff; padding:12px 14px; border-radius:10px; display:none; z-index:9; }
+</style>
+</head>
+<body>
+<header><span class="dot" id="dot"></span><h1 id="title">판매도구</h1><button class="ghost" id="rf" onclick="refresh()"><span class="spin"></span><span id="rft">새로고침</span></button></header>
+<main id="main"><div class="card sub">불러오는 중...</div></main>
+<nav id="nav">
+  <a href="#home" data-t="home">홈</a><a href="#drafts" data-t="drafts">초안</a><a href="#orders" data-t="orders">주문</a><a href="#stock" data-t="stock">품절</a><a href="#sales" data-t="sales">실적</a>
+</nav>
+<div class="toast" id="toast"></div>
+<div id="zoom"><img alt=""><span class="zp" data-go="-1">‹</span><span class="zp zr" data-go="1">›</span><span id="zn"></span></div>
+<script>
+const qs = new URLSearchParams(location.search);
+let KEY = qs.get('key') || localStorage.getItem('st_key') || '';
+if (qs.get('key')) { try { localStorage.setItem('st_key', KEY); } catch (e) {} }
+const $ = s => document.querySelector(s);
+const esc = s => String(s == null ? '' : s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const won = n => (n > 0 ? Number(n).toLocaleString('ko-KR') + '원' : '-');
+function toast(m) { const t = $('#toast'); t.textContent = m; t.style.display = 'block'; clearTimeout(t._h); t._h = setTimeout(() => t.style.display = 'none', 3500); }
+async function api(path, body) {
+  const r = await fetch('/api/' + path, { method: body ? 'POST' : 'GET', headers: { 'X-Key': KEY, 'Content-Type': 'application/json' }, body: body ? JSON.stringify(body) : undefined });
+  const j = await r.json().catch(() => ({}));
+  $('#dot').className = 'dot ' + (r.ok ? 'on' : 'off');
+  if (!r.ok) throw new Error(j.error || ('오류 ' + r.status));
+  return j;
+}
+function tab() { return (location.hash || '#home').slice(1).split('/')[0]; }
+function setNav() { document.querySelectorAll('nav a').forEach(a => a.className = a.dataset.t === tab() ? 'on' : ''); }
+// 뒤로 가기 = 위 메뉴로: 방문 기록을 항상 "홈 → 탭 → 상품" 한 줄로만 유지
+// (초안을 여러 개 봐도 뒤로 가기 3번이면 홈 → 한 번 더 누르면 앱 닫기 확인)
+const pathOf = h => { h = String(h || '').replace(/^#/, ''); return !h || h === 'home' ? [] : h.split('/').slice(0, 2); };
+let NAVING = false;
+function backTo(n) { return new Promise(res => { if (n <= 0) return res(); const f = () => { window.removeEventListener('popstate', f); res(); }; window.addEventListener('popstate', f); history.go(-n); }); }
+async function go(target) {
+  if (NAVING) return false;
+  const cur = pathOf(location.hash), tgt = pathOf(target);
+  let same = 0; while (same < cur.length && same < tgt.length && cur[same] === tgt[same]) same++;
+  if (same === cur.length && same === tgt.length) { load(); return false; }
+  NAVING = true;
+  try {
+    // 공통 부분까지 뒤로 간 다음, 남은 단계를 하나씩 쌓음 (탭끼리 옮길 때는 홈 바로 위 한 칸을 바꿈)
+    await backTo(cur.length - same);
+    for (let i = same; i < tgt.length; i++) history.pushState(null, '', '#' + tgt.slice(0, i + 1).join('/'));
+  } finally { NAVING = false; }
+  load();
+  return false;
+}
+window.addEventListener('hashchange', () => { if (!NAVING) load(); });
+// 처음 열 때 홈이 아닌 화면이면 기록을 "홈 → …" 으로 다시 만듦
+(() => { const p = pathOf(location.hash); if (p.length) { history.replaceState(null, '', '#home'); p.forEach((_, i) => history.pushState(null, '', '#' + p.slice(0, i + 1).join('/'))); } })();
+document.addEventListener('click', e => { const a = e.target.closest('nav a'); if (a) { e.preventDefault(); go(a.getAttribute('href')); } });
+
+// 화면 쓰기 담당: 탭을 바꾼 뒤에 늦게 도착한 이전 탭(품절·실적은 30초쯤 걸림)의 결과는 버림
+let GEN = 0; const CACHE = {};
+function view(nav) {
+  if (nav) GEN++;
+  const g = GEN, key = location.hash || '#home';
+  const paint = (h, keep) => { if (g !== GEN) return; $('#main').innerHTML = h; if (keep) CACHE[key] = h; };
+  return { set innerHTML(h) { paint(h, true); }, wait(h) { paint(h, false); }, get cached() { return CACHE[key]; } };
+}
+function busyNote(m) { return '<div class="card sub"><span class="spin-i"></span> ' + esc(m) + '</div>'; }
+
+// 새로고침 버튼: 도는 점선 원 + "불러오는 중" → 끝나면 "새로고침 완료 · 시각" 잠깐 표시
+async function refresh() {
+  const b = $('#rf'), t = $('#rft');
+  if (b.classList.contains('busy')) return;
+  b.classList.add('busy'); t.textContent = '불러오는 중';
+  const started = Date.now();
+  try { await load(); } finally {
+    const wait = Math.max(0, 400 - (Date.now() - started));   // 너무 빨라도 돈 게 보이게
+    setTimeout(() => {
+      b.classList.remove('busy'); t.textContent = '새로고침';
+      toast('새로고침 완료 · ' + new Date().toLocaleTimeString('ko-KR', { hour12: false }));
+    }, wait);
+  }
+}
+
+async function load() {
+  const M = view(true);
+  setNav();
+  if (!KEY) { M.innerHTML = keyForm(); return; }
+  // 탭을 누르면 바로 그 탭 화면으로 (지난번에 본 내용 또는 '불러오는 중'), 새 내용은 받는 대로 바꿈
+  M.wait(M.cached || '<div class="card sub">불러오는 중...</div>');
+  try {
+    const t = tab(), h = location.hash.slice(1).split('/');
+    if (t === 'home') await home();
+    else if (t === 'drafts') { if (h[1]) await job(h[1]); else await drafts(); }
+    else if (t === 'orders') await orders();
+    else if (t === 'stock') await stock();
+    else if (t === 'sales') await sales();
+  } catch (e) { M.wait('<div class="card st-bad">' + esc(e.message) + '</div>' + (String(e.message).includes('키') ? keyForm() : '<div class="card sub">PC의 판매도구가 켜져 있는지, 같은 와이파이(또는 Tailscale)에 연결돼 있는지 확인하세요.</div>')); }
+}
+function keyForm() { return '<div class="card"><div class="name">연결 키</div><p class="sub">PC 판매도구 [설정] → 휴대폰 앱에 나온 연결 키를 넣으세요.</p><input id="k" placeholder="연결 키"><div style="height:8px"></div><button onclick="KEY=document.getElementById(\'k\').value.trim();try{localStorage.setItem(\'st_key\',KEY)}catch(e){};load()">저장</button></div>'; }
+
+async function home() {
+  const M = view();
+  const s = await api('status');
+  let h = '<div class="card"><div class="grid">' +
+    '<div class="stat"><b>' + s.today + '/' + s.limit + '</b><span>오늘 추가</span></div>' +
+    '<div class="stat"><b>' + s.waiting + '</b><span>대기</span></div>' +
+    '<div class="stat"><b>' + s.review + '</b><span>검토 대기</span></div></div>' +
+    (s.running ? '<p class="sub">진행 중: <b>' + esc(s.running.code) + '</b> ' + esc(s.running.step || '') + '</p>' : '') +
+    (s.paused ? '<p class="st-warn">⏸ 멈춤 (네이버 보안 확인 등). PC에서 푼 뒤 <button class="ghost" onclick="act(\'continue\')">계속</button></p>' : '') + '</div>';
+  h += '<div class="card"><div class="name">상품번호 추가</div><p class="sub">여러 개는 띄어쓰기나 쉼표로</p><div class="row"><input id="codes" inputmode="numeric" placeholder="22021 21945"><button onclick="add()">대기열에 추가</button></div></div>';
+  h += '<div class="card"><div class="row" style="justify-content:space-between"><div><div class="name">자동 발주</div><div class="sub">' + esc(s.schedule || '') + '</div>' + (s.autoOrder && s.nextOrder ? '<div class="sub">다음: ' + esc(s.nextOrder) + '</div>' : '') + '</div>' +
+    '<button class="' + (s.autoOrder ? '' : 'ghost') + '" onclick="act(\'autoorder\',{on:' + (!s.autoOrder) + '})">' + (s.autoOrder ? '켜짐' : '꺼짐') + '</button></div>' +
+    '<p class="sub">발주 ' + s.ordered + '건 · 송장 ' + s.tracked + '건 · 확인 필요 ' + s.pending + '건</p>' + (s.lastShortage ? '<p class="st-warn">' + esc(s.lastShortage) + '</p>' : '') + '</div>';
+  h += '<div class="card"><div class="name">최근 기록</div><div class="log">' + esc((s.log || []).slice().reverse().join('\n')) + '</div></div>';
+  M.innerHTML = h;
+}
+async function add() { const v = $('#codes').value.trim(); if (!v) return; const r = await api('add', { codes: v }); toast(r.message); load(); }
+async function act(what, body) { try { const r = await api(what, body || {}); toast(r.message || '완료'); } catch (e) { toast(e.message); } load(); }
+
+async function drafts() {
+  const M = view();
+  const list = await api('drafts');
+  let h = '<div class="card">' + (list.length ? '' : '<p class="sub">상품이 없습니다.</p>');
+  for (const j of list) {
+    const cls = j.status === '검토 대기' ? 'st-ok' : j.status === '오류' ? 'st-bad' : j.status === '등록 완료' ? 'sub' : 'st-warn';
+    h += '<div class="item" onclick="go(\'drafts/' + esc(j.code) + '\')"><div class="row" style="justify-content:space-between"><b>' + esc(j.code) + '</b><span class="' + cls + '">' + esc(j.status) + '</span></div>' +
+      '<div class="name">' + esc(j.n1 || j.name || '') + '</div><div class="sub">' + (j.step ? esc(j.step) : '1개 ' + won(j.price1)) + '</div></div>';
+  }
+  M.innerHTML = h + '</div>';
+}
+async function job(code) {
+  const M = view();
+  const j = await api('job?code=' + encodeURIComponent(code));
+  let h = '<div class="card"><div class="row" style="justify-content:space-between"><b>[' + esc(j.code) + '] ' + esc(j.status) + '</b><button class="ghost" onclick="go(\'drafts\')">목록</button></div>' +
+    '<div class="sub">' + esc(j.name) + '</div><div class="sub">시작 단어: ' + esc(j.seed) + '</div><div class="sub">네이버: ' + esc(j.naverCat || '-') + '<br>쿠팡: ' + esc(j.coupangCat || '-') + '</div>' +
+    '</div>';
+  // 대표이미지: 쿠팡용 1~6통(상표 가림·글자판) + 네이버 스토어용 1개·2개(상표 그대로). 누르면 크게, 옆으로 밀면 같은 묶음의 다음 이미지
+  const grid = (g, kind, cnt, cap) => '<div class="xs" data-g="' + g + '">' + Array.from({ length: cnt }, (_, i) =>
+    '<figure><img src="' + imgUrl(j, kind, i + 1) + '" onclick="zoom(&quot;' + g + '&quot;,' + i + ')" loading="lazy"><figcaption>' + cap(i + 1) + '</figcaption></figure>').join('') + '</div>';
+  h += '<div class="card"><div class="name">쿠팡 대표이미지 (상표 가림)</div>' + (j.repCount ? grid('rep', 'rep', j.repCount, n => n + '통') : '<p class="sub">아직 없습니다.</p>') + '</div>';
+  h += '<div class="card"><div class="name">네이버 스토어 대표이미지 (상표 그대로)</div>' + (j.naverCount ? grid('naver', 'naver', j.naverCount, n => n === 1 ? '1개' : '2개 (1+1)') : '<p class="sub">아직 없습니다. 등록할 때 만들어집니다.</p>') + '</div>';
+  // 추가이미지 (등록할 때 올라가는 순서대로). 누르면 크게
+  h += '<div class="card"><div class="name">추가이미지 ' + (j.extras || 0) + '장</div>' + (j.extras ? '<div class="xs" data-g="extra">' +
+    Array.from({ length: j.extras }, (_, i) => '<figure><img src="' + imgUrl(j, 'extra', i + 1) + '" onclick="zoom(&quot;extra&quot;,' + i + ')" loading="lazy"><figcaption>' + (i + 1) + '</figcaption></figure>').join('') + '</div>' : '<p class="sub">아직 없습니다.</p>') + '</div>';
+  h += '<div class="card"><div class="name">상품명</div>';
+  for (const n of j.names) h += '<div class="item"><div class="sub">' + esc(n.label) + ' · ' + n.text.length + '자</div><div>' + esc(n.text) + '</div></div>';
+  h += '</div><div class="card"><div class="name">가격</div><div class="row">' + j.prices.map((p, i) => '<span class="tag">' + (i + 1) + '개 ' + won(p) + '</span>').join('') + '</div></div>';
+  if (j.tags1 && j.tags1.length) {
+    h += '<div class="card"><div class="name">쿠팡 #1 (질병·치료 우선) <span class="sub">' + j.tags1.length + '/20</span></div><div class="row" style="flex-wrap:wrap;gap:4px;">' + j.tags1.map(t => '<span class="tag">' + esc(t) + '</span>').join('') + '</div></div>';
+  }
+  if (j.tags2 && j.tags2.length) {
+    h += '<div class="card"><div class="name">쿠팡 #2 (인물 우선) <span class="sub">' + j.tags2.length + '/20</span></div><div class="row" style="flex-wrap:wrap;gap:4px;">' + j.tags2.map(t => '<span class="tag">' + esc(t) + '</span>').join('') + '</div></div>';
+  }
+  if (j.tags3 && j.tags3.length) {
+    h += '<div class="card"><div class="name">쿠팡 #3 (급상승 우선) <span class="sub">' + j.tags3.length + '/20</span></div><div class="row" style="flex-wrap:wrap;gap:4px;">' + j.tags3.map(t => '<span class="tag">' + esc(t) + '</span>').join('') + '</div></div>';
+  }
+  if ((!j.tags1 || !j.tags1.length) && (!j.tags2 || !j.tags2.length) && (!j.tags3 || !j.tags3.length) && j.tags && j.tags.length) {
+    h += '<div class="card"><div class="name">쿠팡 검색어</div><div class="row" style="flex-wrap:wrap;gap:4px;">' + j.tags.map(t => '<span class="tag">' + esc(t) + '</span>').join('') + '</div></div>';
+  }
+  if (j.problems.length) h += '<div class="card st-warn">' + j.problems.map(esc).join('<br>') + '</div>';
+  if (j.results.length) h += '<div class="card sub">' + j.results.map(esc).join('<br>') + '</div>';
+  if (j.status === '검토 대기' && !j.problems.length) h += '<div class="card"><button id="regb" onclick="reg(\'' + esc(j.code) + '\')">' + esc(j.registerNote) + ' 등록</button></div>';
+  M.innerHTML = h;
+}
+function imgUrl(j, kind, n) { return '/api/image?code=' + encodeURIComponent(j.code) + '&kind=' + kind + '&n=' + n + '&v=' + (j.imgVer || 0) + '&key=' + encodeURIComponent(KEY); }
+// 크게 보기: 옆으로 밀면 다음/이전 추가이미지, 그냥 누르면 닫힘
+let ZI = 0, ZG = 'extra';
+function zoomList() { return [...document.querySelectorAll('.xs[data-g="' + ZG + '"] img')].map(i => i.src); }
+function zoom(g, i) {
+  if (typeof g === 'number') { i = g; } else { ZG = g; }
+  const L = zoomList(); if (!L.length) return;
+  ZI = (i + L.length) % L.length;
+  const z = $('#zoom'); z.querySelector('img').src = L[ZI]; $('#zn').textContent = (ZI + 1) + ' / ' + L.length; z.style.display = 'flex';
+}
+(() => {
+  const z = $('#zoom'); let x0 = null, y0 = 0, moved = false;
+  z.addEventListener('touchstart', e => { x0 = e.touches[0].clientX; y0 = e.touches[0].clientY; moved = false; }, { passive: true });
+  z.addEventListener('touchend', e => {
+    if (x0 == null) return;
+    const dx = e.changedTouches[0].clientX - x0, dy = e.changedTouches[0].clientY - y0; x0 = null;
+    if (Math.abs(dx) > 40 && Math.abs(dx) > Math.abs(dy)) { moved = true; zoom(ZI + (dx < 0 ? 1 : -1)); }
+  });
+  z.addEventListener('click', e => {
+    if (moved) { moved = false; return; }
+    if (e.target.dataset.go) { zoom(ZI + Number(e.target.dataset.go)); return; }
+    z.style.display = 'none';
+  });
+})();
+async function reg(code) {
+  if (!confirm('[' + code + '] 를 등록할까요?')) return;
+  $('#regb').disabled = true; $('#regb').textContent = '등록 중...';
+  try { const r = await api('register', { code }); toast(r.message); } catch (e) { toast(e.message); }
+  load();
+}
+
+async function orders() {
+  const M = view();
+  const o = await api('orders');
+  let h = '<div class="card"><div class="row"><button onclick="act(\'order\')">지금 주문 확인·발주</button><button class="ghost" onclick="act(\'track\')">지금 송장 입력</button></div>' +
+    (o.lastShortage ? '<p class="st-warn">' + esc(o.lastShortage) + '</p>' : '') + (o.pending.length ? '<p class="st-warn">결과 확인 필요 ' + o.pending.length + '건 (msgood 주문/배송조회 확인)</p>' : '') + '</div>';
+  h += '<div class="card"><div class="name">발주한 주문 (최근)</div>' + (o.done.length ? '' : '<p class="sub">아직 없습니다.</p>');
+  for (const d of o.done) h += '<div class="item"><div class="row" style="justify-content:space-between"><b>' + esc(d.market) + ' #' + esc(d.account) + ' ' + esc(d.code) + ' x' + d.qty + '</b><span class="sub">' + esc(d.orderedAt) + '</span></div>' +
+    '<div class="' + (d.tracking ? 'st-ok' : 'sub') + '">' + (d.tracking ? esc(d.courier) + ' ' + esc(d.tracking) : '송장 기다리는 중') + '</div></div>';
+  M.innerHTML = h + '</div>';
+}
+async function stock() {
+  const M = view();
+  M.wait(M.cached ? busyNote('품절 목록 다시 확인 중... (30초쯤)') + M.cached : '<div class="card sub">msgood 품절 목록 확인 중... (30초쯤)</div>');
+  const p = await api('stockplan');
+  let h = '<div class="card"><div class="name">품절 연동</div><p class="sub">msgood 품절·단종인데 스토어에서 판매 중인 상품 / 다시 들어온 상품</p>';
+  if (!p.length) h += '<p class="st-ok">바꿀 상품이 없습니다.</p>';
+  for (const c of p) h += '<div class="item"><b>' + esc(c.market) + ' #' + esc(c.account) + ' ' + esc(c.code) + '</b> <span class="' + (c.action === '품절' ? 'st-warn' : 'st-ok') + '">' + esc(c.action) + '</span><div class="sub">' + esc(c.name) + '</div></div>';
+  if (p.length) h += '<div style="height:8px"></div><button class="warn" onclick="if(confirm(\'' + p.length + '개를 반영할까요?\'))act(\'stockapply\')">반영하기</button>';
+  M.innerHTML = h + '</div>';
+}
+async function sales() {
+  const M = view();
+  M.wait(M.cached ? busyNote('주문 다시 읽는 중...') + M.cached : '<div class="card sub">주문 읽는 중...</div>');
+  const s = await api('sales');
+  let h = '<div class="card"><div class="grid"><div class="stat"><b>' + s.count + '</b><span>30일 판매</span></div><div class="stat"><b>' + won(s.amount) + '</b><span>금액</span></div><div class="stat"><b>' + s.rows.length + '</b><span>상품</span></div></div></div>';
+  h += '<div class="card">' + (s.rows.length ? '' : '<p class="sub">최근 30일 주문이 없습니다.</p>');
+  for (const r of s.rows) h += '<div class="item"><div class="row" style="justify-content:space-between"><b>' + esc(r.market) + ' ' + esc(r.code || '-') + '</b><span>' + r.count + '개 · ' + won(r.amount) + '</span></div><div class="sub">' + esc(r.name) + '</div></div>';
+  if (s.problems.length) h += '<p class="st-warn">' + s.problems.map(esc).join('<br>') + '</p>';
+  M.innerHTML = h + '</div>';
+}
+load();
+setInterval(() => { if (tab() === 'home') home().catch(() => {}); }, 15000);
+</script>
+</body>
+</html>

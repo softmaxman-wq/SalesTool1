@@ -1,0 +1,17 @@
+{
+  "naver_searchad": {
+    "AccessLicense": "네이버_검색광고_API_ACCESS_LICENSE",
+    "SecretKey": "네이버_검색광고_SECRET_KEY",
+    "CustomerId": "네이버_검색광고_CUSTOMER_ID"
+  },
+  "naver_datalab": {
+    "ClientId": "네이버_개발자_CLIENT_ID",
+    "ClientSecret": "네이버_개발자_CLIENT_SECRET"
+  },
+  "telegram": {
+    "BotToken": "텔레그램_봇_토큰"
+  },
+  "github": {
+    "Token": "GITHUB_PERSONAL_ACCESS_TOKEN"
+  }
+}
