@@ -73,9 +73,11 @@ namespace SalesTool
                 return false;
             }
 
-            if (currentSellerId != null && currentSellerId != cred.SellerId)
+            // 이번 실행에서 이 계정으로 직접 로그인한 게 아니면(프로그램을 새로 켰거나, 30일 유지 쿠키에 다른 계정이 남아 있을 수 있음)
+            // 기존 로그인을 지우고 이 계정으로 새로 로그인한다. 다른 사업자 적립금으로 발주되는 것을 막기 위함.
+            if (currentSellerId != cred.SellerId)
             {
-                await SellerLogin(log, cred);
+                if (!await SellerLogin(log, cred)) return false;
             }
 
             await Navigate(Home + path);
@@ -86,7 +88,22 @@ namespace SalesTool
                 await Navigate(Home + path);
                 await Task.Delay(500);
             }
-            return !Url.Contains("seller_login");
+            return currentSellerId == cred.SellerId && !Url.Contains("seller_login") && !Url.Contains("login");
+        }
+
+        // msgood4u 쿠키(로그인)를 모두 지움: 다음 로그인이 반드시 새 계정으로만 되게
+        async Task ClearMsgoodLogin()
+        {
+            currentSellerId = null;
+            if (view.CoreWebView2 == null) return;
+            try
+            {
+                var cm = view.CoreWebView2.CookieManager;
+                foreach (var site in new[] { "https://msgood4u.com", "https://www.msgood4u.com" })
+                    foreach (var c in await cm.GetCookiesAsync(site))
+                        cm.DeleteCookie(c);
+            }
+            catch { }
         }
 
         // 상품대량발주: 엑셀(HTML 표)을 올려 금액·적립금을 보고, submit 이면 적립금이 충분할 때 발주까지
@@ -248,33 +265,47 @@ namespace SalesTool
             var c = cred ?? MsgoodCred.Load("1");
             if (c == null || !c.HasSeller || view.CoreWebView2 == null) return false;
             if (log != null) log("msgood4u 셀러로그인 (" + c.SellerId + ") 중...");
+            // 남아 있는 로그인(다른 계정일 수 있음)을 먼저 지우고, 빈 로그인 화면에서만 입력한다
+            await ClearMsgoodLogin();
             await Navigate(Home + "_admin/html/seller_login.php");
-            await Task.Delay(800);
-            await view.CoreWebView2.ExecuteScriptAsync("(() => { const f = document.loginFormSeller; if (!f) { location.href = './seller_logout.php'; return; } " +
-                "document.getElementById('_partner_code').value = " + json.Serialize(c.SellerCode) + ";" +
-                "document.getElementById('seller_id').value = " + json.Serialize(c.SellerId) + ";" +
-                "document.getElementById('seller_passwd').value = " + json.Serialize(c.SellerPw) + "; seller_loginCheck(f); })()");
-            for (int i = 0; i < 30; i++)
+            bool form = false;
+            for (int i = 0; i < 20 && !form; i++)
             {
                 await Task.Delay(500);
-                string url = view.Source != null ? view.Source.ToString() : "";
-                if (url.Length > 0 && !url.Contains("seller_login"))
+                var f = await Eval("({ ok: !!document.loginFormSeller && !!document.getElementById('seller_id') })");
+                form = f != null && Convert.ToBoolean(f["ok"]);
+            }
+            if (!form)
+            {
+                if (log != null) log("msgood4u 셀러로그인 화면이 열리지 않았습니다. 발주하지 않습니다.");
+                return false;
+            }
+            var done = new TaskCompletionSource<bool>();
+            EventHandler<CoreWebView2NavigationCompletedEventArgs> h = (s, e) => done.TrySetResult(true);
+            view.CoreWebView2.NavigationCompleted += h;
+            try
+            {
+                await view.CoreWebView2.ExecuteScriptAsync("(() => { const f = document.loginFormSeller; if (!f) return; " +
+                    "document.getElementById('_partner_code').value = " + json.Serialize(c.SellerCode) + ";" +
+                    "document.getElementById('seller_id').value = " + json.Serialize(c.SellerId) + ";" +
+                    "document.getElementById('seller_passwd').value = " + json.Serialize(c.SellerPw) + "; seller_loginCheck(f); })()");
+                // 로그인 버튼을 누른 뒤 실제로 페이지 이동이 끝날 때까지 기다림 (이동 전에 성공으로 판단하지 않게)
+                await Task.WhenAny(done.Task, Task.Delay(15000));
+            }
+            finally { view.CoreWebView2.NavigationCompleted -= h; }
+            for (int i = 0; i < 20; i++)
+            {
+                await Task.Delay(500);
+                string url = Url;
+                if (done.Task.IsCompleted && url.Length > 0 && !url.Contains("seller_login"))
                 {
                     currentSellerId = c.SellerId;
                     if (log != null) log("msgood4u 셀러로그인 (" + c.SellerId + ") 했습니다.");
                     return true;
                 }
-                if (url.Contains("seller_logout"))
-                {
-                    await Navigate(Home + "_admin/html/seller_login.php");
-                    await Task.Delay(500);
-                    await view.CoreWebView2.ExecuteScriptAsync("(() => { const f = document.loginFormSeller; if (!f) return; " +
-                        "document.getElementById('_partner_code').value = " + json.Serialize(c.SellerCode) + ";" +
-                        "document.getElementById('seller_id').value = " + json.Serialize(c.SellerId) + ";" +
-                        "document.getElementById('seller_passwd').value = " + json.Serialize(c.SellerPw) + "; seller_loginCheck(f); })()");
-                }
             }
-            if (log != null) log("msgood4u 셀러로그인에 실패했습니다. [설정]에서 판매자 코드·아이디·비밀번호를 확인하세요.");
+            currentSellerId = null;
+            if (log != null) log("msgood4u 셀러로그인 (" + c.SellerId + ")에 실패했습니다. 발주하지 않습니다. [설정]에서 판매자 코드·아이디·비밀번호를 확인하세요.");
             return false;
         }
 
