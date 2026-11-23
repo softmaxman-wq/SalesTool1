@@ -824,7 +824,7 @@ namespace SalesTool
             ordered = head.Concat(body.Where(w => reuse(w) == 0)).Concat(body.Where(w => reuse(w) == 1)).ToList();
             filler = filler.Where(w => reuse(w) < 2).OrderBy(reuse).Concat(tail).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
 
-            job.Names = Naming.Build(job.Seed, ordered, filler, cextra, w => WordStatOf(job, w));
+            job.Names = Naming.BuildForAccounts(job, set, ordered, filler, cextra, w => WordStatOf(job, w));
             // 상품명이 20자도 안 되면 (해삼 해삼왕환) 이 상품에 적힌 말 중 같은 상품을 파는 1페이지 상품명에 3번 이상 나온 말로 채움
             //  (검색량이 적거나 카테고리 확인에서 빠진 말이라도: 해삼환·건해삼·복분자)
             if (job.Names.ContainsKey("n1_1") && job.Names["n1_1"].Length < Naming.NaverMinLen)
@@ -863,13 +863,25 @@ namespace SalesTool
                 if (backup.Count > 0)
                 {
                     filler = filler.Concat(backup).ToList();
-                    job.Names = Naming.Build(job.Seed, ordered, filler, cextra, w => WordStatOf(job, w));
+                    job.Names = Naming.BuildForAccounts(job, set, ordered, filler, cextra, w => WordStatOf(job, w));
                 }
             }
             // 네이버 검색 최적화: 같은 말이 3번 이상 들어가면 "유의어 포함 반복된 단어" 경고 → 같은 말이 든 단어는 2개까지만 (토마토환 구운토마토 토마토)
             foreach (var k in job.Names.Keys.Where(k => k.StartsWith("n")).ToList()) job.Names[k] = Naming.LimitRepeats(job.Names[k], job.Seed);
             job.NameWords = ordered.Concat(filler).Concat(blocked).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
             KeywordLedger.Record(job.Code, job.Names.Values.SelectMany(n => Regex.Split(n ?? "", @"\s+")), null);
+            if (!string.IsNullOrWhiteSpace(set.SharedFolder))
+            {
+                foreach (var a in set.Accounts)
+                {
+                    string nKey = "n" + a.Id + "_1";
+                    string cKey = "c" + a.Id;
+                    if (job.Names.ContainsKey(nKey))
+                        SharedNames.Append(set.SharedFolder, job.Code, a.BusinessId, job.Names[nKey], Regex.Split(job.Names[nKey], @"\s+"));
+                    if (job.Names.ContainsKey(cKey))
+                        SharedNames.Append(set.SharedFolder, job.Code, a.BusinessId, job.Names[cKey], Regex.Split(job.Names[cKey], @"\s+"));
+                }
+            }
         }
 
         // 단어의 상품총수량·월간검색량: 상품명 단어를 따로 확인한 값 → 키워드 표 → 연관 키워드

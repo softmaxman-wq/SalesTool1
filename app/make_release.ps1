@@ -1,6 +1,6 @@
 ﻿param(
-    [string]$Version = "1.3.5",
-    [string]$Notes = "1. 쿠팡 카테고리 '건강환' 오분류 차단:`n   - 캡슐 상품이 쿠팡에서 건강환/건강분말로 잘못 빠지지 않도록 제형 정밀 fallback 적용`n2. 위험 검색어 수동 체크박스 UI 완전 제거:`n   - 사용자가 손댈 필요 없이 3개 쿠팡 샵 검색어 20개 전자동 풀링 완성`n3. 3D AI 대표이미지 프롬프트 정밀 팩샷 보틀 교정"
+    [string]$Version = "1.4.0",
+    [string]$Notes = "1. msgood4u 계정 분리: 계정 1·2·3 개별 로그인 및 사업자별 주문 자동발주 연동`n2. 사업자별 상품명 차별화: 스타일 프리셋, 키워드 분산, 공유폴더(PC간 6개 사업자) 중복 방지`n3. 3개 계정 동시 등록 & 실패한 계정만 선별 재시도 지원 (PC 및 모바일 웹)"
 )
 
 $ErrorActionPreference = "Stop"
@@ -87,14 +87,9 @@ if (Test-Path "$extDir\WebView2_LICENSE.txt") {
 if (Test-Path "$extDir\사용법(먼저 읽기).txt") {
     Copy-Item "$extDir\사용법(먼저 읽기).txt" "$tempFullDir\" -Force
 }
-if (Test-Path "$progDir\api_keys.json") {
-    Copy-Item "$progDir\api_keys.json" "$tempFullDir\" -Force
-}
-if (Test-Path "$progDir\learned.json") {
-    Copy-Item "$progDir\learned.json" "$tempFullDir\" -Force
-}
-if (Test-Path "$progDir\settings.json") {
-    Copy-Item "$progDir\settings.json" "$tempFullDir\" -Force
+$repoDir = (Get-Item $appDir).Parent.FullName
+if (Test-Path "$repoDir\api_keys.example.json") {
+    Copy-Item "$repoDir\api_keys.example.json" "$tempFullDir\api_keys.example.json" -Force
 }
 
 $fullZipPath = Join-Path $distDir "판매도구_배포용_v$Version.zip"

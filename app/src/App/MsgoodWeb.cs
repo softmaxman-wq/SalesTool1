@@ -61,14 +61,28 @@ namespace SalesTool
 
         string Url { get { return view.Source != null ? view.Source.ToString() : ""; } }
 
-        // 셀러 관리 화면 열기 (로그인이 풀려 있으면 셀러로그인)
-        async Task<bool> OpenSeller(string path, Action<string> log)
+        string currentSellerId = null;
+
+        // 셀러 관리 화면 열기 (로그인이 풀려 있거나 다른 셀러 계정이면 셀러로그인)
+        async Task<bool> OpenSeller(string path, Action<string> log, MsgoodCred cred = null)
         {
+            if (cred == null) cred = MsgoodCred.Load("1");
+            if (cred == null || !cred.HasSeller)
+            {
+                if (log != null) log("msgood4u 셀러 로그인 정보가 없습니다.");
+                return false;
+            }
+
+            if (currentSellerId != null && currentSellerId != cred.SellerId)
+            {
+                await SellerLogin(log, cred);
+            }
+
             await Navigate(Home + path);
             await Task.Delay(500);
             if (Url.Contains("seller_login") || Url.Contains("login"))
             {
-                if (!await SellerLogin(log)) return false;
+                if (!await SellerLogin(log, cred)) return false;
                 await Navigate(Home + path);
                 await Task.Delay(500);
             }
@@ -76,14 +90,14 @@ namespace SalesTool
         }
 
         // 상품대량발주: 엑셀(HTML 표)을 올려 금액·적립금을 보고, submit 이면 적립금이 충분할 때 발주까지
-        public async Task<BulkResult> BulkOrder(string excelHtml, bool submit, Action<string> log)
+        public async Task<BulkResult> BulkOrder(string excelHtml, bool submit, Action<string> log, MsgoodCred cred = null)
         {
             var r = new BulkResult();
             await Gate.WaitAsync();
             armed = true;
             try
             {
-                if (!await OpenSeller("_admin/html/_dmorder/dmorder_excel_regForm.php", log)) { r.Message = "msgood4u 셀러로그인을 하지 못했습니다 ([설정]에서 셀러 정보를 저장하세요)."; return r; }
+                if (!await OpenSeller("_admin/html/_dmorder/dmorder_excel_regForm.php", log, cred)) { r.Message = "msgood4u 셀러로그인을 하지 못했습니다 ([설정]에서 셀러 정보를 저장하세요)."; return r; }
                 lock (Dialogs) Dialogs.Clear();
                 log("msgood4u 대량발주 엑셀 올리는 중...");
                 await view.CoreWebView2.ExecuteScriptAsync("(() => { const f = new File([" + json.Serialize(excelHtml) + "], 'order.xls', {type: 'application/vnd.ms-excel'}); const dt = new DataTransfer(); dt.items.add(f);" +
@@ -148,12 +162,12 @@ namespace SalesTool
         }
 
         // 주문/배송조회 (최근 days 일): 각 줄의 칸 글자와 줄 전체 HTML
-        public async Task<List<Dictionary<string, object>>> OrderList(int days, Action<string> log)
+        public async Task<List<Dictionary<string, object>>> OrderList(int days, Action<string> log, MsgoodCred cred = null)
         {
             await Gate.WaitAsync();
             try
             {
-                if (!await OpenSeller("_admin/html/_dmorder/dmorder_list.php", log)) return null;
+                if (!await OpenSeller("_admin/html/_dmorder/dmorder_list.php", log, cred)) return null;
                 string q = "?stxtDate=" + DateTime.Now.AddDays(-days).ToString("yyyy-MM-dd") + "&etxtDate=" + DateTime.Now.ToString("yyyy-MM-dd") + "&unit_page=3000";
                 string js = "(async () => { const h = await (await fetch('./dmorder_list.php" + q + "', {credentials: 'include'})).text(); const d = new DOMParser().parseFromString(h, 'text/html');" +
                     " const heads = [...d.querySelectorAll('table th')].map(t => t.innerText.trim()); const rows = [];" +
@@ -205,11 +219,11 @@ namespace SalesTool
 })()";
 
         // 저장해 둔 아이디로 로그인 (로그인이 풀려 있을 때). 성공하면 true
-        public async Task<bool> AutoLogin(Action<string> log = null)
+        public async Task<bool> AutoLogin(Action<string> log = null, MsgoodCred cred = null)
         {
-            var c = MsgoodCred.Load();
+            var c = cred ?? MsgoodCred.Load("1");
             if (c == null || !c.HasMember || view.CoreWebView2 == null) return false;
-            if (log != null) log("msgood4u 자동 로그인 중...");
+            if (log != null) log("msgood4u 자동 로그인 (" + c.Id + ") 중...");
             await Navigate(Home + "html/member/login.php");
             await Task.Delay(800);
             await view.CoreWebView2.ExecuteScriptAsync("(() => { const f = document.loginForm; if (!f) return; document.getElementById('id').value = " + json.Serialize(c.Id) +
@@ -217,30 +231,56 @@ namespace SalesTool
             for (int i = 0; i < 30; i++)
             {
                 await Task.Delay(500);
-                if (await IsLoggedIn()) { if (log != null) log("msgood4u 에 자동으로 로그인했습니다."); return true; }
+                if (await IsLoggedIn()) { if (log != null) log("msgood4u (" + c.Id + ") 에 로그인했습니다."); return true; }
             }
             if (log != null) log("msgood4u 자동 로그인에 실패했습니다. [설정]에서 아이디·비밀번호를 확인하세요.");
             return false;
         }
 
-        // 셀러로그인 (상품 개별발주용): 판매자 코드·아이디·비밀번호
-        public async Task<bool> SellerLogin(Action<string> log = null)
+        public async Task<bool> AutoLogin(MsgoodCred cred, Action<string> log = null)
         {
-            var c = MsgoodCred.Load();
+            return await AutoLogin(log, cred);
+        }
+
+        // 셀러로그인 (상품 개별발주용): 판매자 코드·아이디·비밀번호
+        public async Task<bool> SellerLogin(Action<string> log = null, MsgoodCred cred = null)
+        {
+            var c = cred ?? MsgoodCred.Load("1");
             if (c == null || !c.HasSeller || view.CoreWebView2 == null) return false;
-            if (log != null) log("msgood4u 셀러로그인 중...");
+            if (log != null) log("msgood4u 셀러로그인 (" + c.SellerId + ") 중...");
             await Navigate(Home + "_admin/html/seller_login.php");
             await Task.Delay(800);
-            await view.CoreWebView2.ExecuteScriptAsync("(() => { const f = document.loginFormSeller; if (!f) return; document.getElementById('_partner_code').value = " + json.Serialize(c.SellerCode) +
-                "; document.getElementById('seller_id').value = " + json.Serialize(c.SellerId) + "; document.getElementById('seller_passwd').value = " + json.Serialize(c.SellerPw) + "; seller_loginCheck(f); })()");
+            await view.CoreWebView2.ExecuteScriptAsync("(() => { const f = document.loginFormSeller; if (!f) { location.href = './seller_logout.php'; return; } " +
+                "document.getElementById('_partner_code').value = " + json.Serialize(c.SellerCode) + ";" +
+                "document.getElementById('seller_id').value = " + json.Serialize(c.SellerId) + ";" +
+                "document.getElementById('seller_passwd').value = " + json.Serialize(c.SellerPw) + "; seller_loginCheck(f); })()");
             for (int i = 0; i < 30; i++)
             {
                 await Task.Delay(500);
                 string url = view.Source != null ? view.Source.ToString() : "";
-                if (url.Length > 0 && !url.Contains("seller_login")) { if (log != null) log("msgood4u 셀러로그인 했습니다."); return true; }
+                if (url.Length > 0 && !url.Contains("seller_login"))
+                {
+                    currentSellerId = c.SellerId;
+                    if (log != null) log("msgood4u 셀러로그인 (" + c.SellerId + ") 했습니다.");
+                    return true;
+                }
+                if (url.Contains("seller_logout"))
+                {
+                    await Navigate(Home + "_admin/html/seller_login.php");
+                    await Task.Delay(500);
+                    await view.CoreWebView2.ExecuteScriptAsync("(() => { const f = document.loginFormSeller; if (!f) return; " +
+                        "document.getElementById('_partner_code').value = " + json.Serialize(c.SellerCode) + ";" +
+                        "document.getElementById('seller_id').value = " + json.Serialize(c.SellerId) + ";" +
+                        "document.getElementById('seller_passwd').value = " + json.Serialize(c.SellerPw) + "; seller_loginCheck(f); })()");
+                }
             }
             if (log != null) log("msgood4u 셀러로그인에 실패했습니다. [설정]에서 판매자 코드·아이디·비밀번호를 확인하세요.");
             return false;
+        }
+
+        public async Task<bool> SellerLogin(MsgoodCred cred, Action<string> log = null)
+        {
+            return await SellerLogin(log, cred);
         }
 
         // 로그인 유지: msgood4u 로그인은 세션 쿠키(PHPSESSID)라 프로그램을 닫으면 지워짐.
@@ -366,31 +406,58 @@ namespace SalesTool
         }
     }
 
-    // msgood4u 아이디·비밀번호 (이 PC의 이 Windows 사용자만 풀 수 있게 암호화해서 msgood_login.dat 에 저장)
+    // msgood4u 아이디·비밀번호 (이 PC의 이 Windows 사용자만 풀 수 있게 암호화해서 계정별 msgood_login_N.dat 에 저장)
     public class MsgoodCred
     {
         public string Id, Pw, SellerCode, SellerId, SellerPw;
         static readonly byte[] Salt = Encoding.UTF8.GetBytes("SalesTool.msgood");
-        public static string FilePath { get { return System.IO.Path.Combine(Store.Dir, "msgood_login.dat"); } }
+        public static string FilePath { get { return FilePathFor("1"); } }
 
-        public static MsgoodCred Load()
+        public static string FilePathFor(string accId)
+        {
+            accId = string.IsNullOrEmpty(accId) ? "1" : accId.Trim();
+            return System.IO.Path.Combine(Store.Dir, "msgood_login_" + accId + ".dat");
+        }
+
+        public static void MigrateOld()
         {
             try
             {
-                if (!System.IO.File.Exists(FilePath)) return null;
-                var raw = ProtectedData.Unprotect(System.IO.File.ReadAllBytes(FilePath), Salt, DataProtectionScope.CurrentUser);
+                var oldPath = System.IO.Path.Combine(Store.Dir, "msgood_login.dat");
+                var newPath1 = FilePathFor("1");
+                if (System.IO.File.Exists(oldPath) && !System.IO.File.Exists(newPath1))
+                {
+                    System.IO.File.Copy(oldPath, newPath1, false);
+                }
+            }
+            catch { }
+        }
+
+        public static MsgoodCred Load(string accId = "1")
+        {
+            MigrateOld();
+            try
+            {
+                var path = FilePathFor(accId);
+                if (!System.IO.File.Exists(path)) return null;
+                var raw = ProtectedData.Unprotect(System.IO.File.ReadAllBytes(path), Salt, DataProtectionScope.CurrentUser);
                 return new JavaScriptSerializer().Deserialize<MsgoodCred>(Encoding.UTF8.GetString(raw));
             }
             catch { return null; }
         }
 
-        public void Save()
+        public void Save(string accId = "1")
         {
+            var path = FilePathFor(accId);
             var raw = Encoding.UTF8.GetBytes(new JavaScriptSerializer().Serialize(this));
-            System.IO.File.WriteAllBytes(FilePath, ProtectedData.Protect(raw, Salt, DataProtectionScope.CurrentUser));
+            System.IO.File.WriteAllBytes(path, ProtectedData.Protect(raw, Salt, DataProtectionScope.CurrentUser));
         }
 
-        public static void Delete() { try { System.IO.File.Delete(FilePath); } catch { } }
+        public static void Delete(string accId = "1")
+        {
+            try { System.IO.File.Delete(FilePathFor(accId)); } catch { }
+        }
+
         public bool HasMember { get { return !string.IsNullOrEmpty(Id) && !string.IsNullOrEmpty(Pw); } }
         public bool HasSeller { get { return !string.IsNullOrEmpty(SellerCode) && !string.IsNullOrEmpty(SellerId) && !string.IsNullOrEmpty(SellerPw); } }
     }

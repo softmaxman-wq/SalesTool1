@@ -112,10 +112,10 @@ namespace SalesTool
             {
                 if (msgoodView.CoreWebView2 == null) return;
                 tabs.SelectedTab = msgoodTab;
-                var cred = MsgoodCred.Load();
-                if (cred != null && cred.HasMember) { var t = msgood.AutoLogin(Status).ContinueWith(_ => BeginInvoke(new Action(async () => await QueuePriceIfLoggedIn()))); return; }
+                var cred = MsgoodCred.Load("1") ?? MsgoodCred.Load("2") ?? MsgoodCred.Load("3");
+                if (cred != null && cred.HasMember) { var t = msgood.AutoLogin(Status, cred).ContinueWith(_ => BeginInvoke(new Action(async () => await QueuePriceIfLoggedIn()))); return; }
                 msgoodView.CoreWebView2.Navigate(MsgoodWeb.Home);
-                Status("[msgood4u] 탭에서 로그인하세요. [설정]에 아이디·비밀번호를 저장해 두면 다음부터 자동으로 로그인합니다.");
+                Status("[msgood4u] 탭에서 로그인하세요. [설정]에 계정별 아이디·비밀번호를 저장해 두면 다음부터 자동으로 로그인합니다.");
             });
             top.Controls.AddRange(new Control[] { Lbl("msgood4u 상품번호"), codesBox, Btn("대기열에 추가", AddCodes), todayLabel, Lbl("키워드 순서"), orderBox, naverLogin, msgoodLogin, continueButton });
 
@@ -566,25 +566,28 @@ namespace SalesTool
                 Btn("쿠팡 검색어 다시 찾기", () => Queue(job, "tags")),
                 Note("초록 = 소형키워드 (상품총수량 < " + set.MaxRatio + " × 검색량) · 빨강 ▲ = 최근 급상승 (먼저 넣음) · 순서: " + (job.OrderMode ?? set.OrderMode) + " · 단어를 오른쪽 클릭하면 브랜드로 기억 / 빼기")));
 
-            // 상품명
-            flow.Controls.Add(Section("상품명"));
-            foreach (var key in NameKeys)
+            // 상품명 (사업자별 차별화)
+            flow.Controls.Add(Section("상품명 (사업자별 차별화)"));
+            foreach (var plan in set.Accounts.Where(a => a.Use))
             {
-                var plan = set.Accounts.First(a => a.Id == key.Substring(1, 1));
-                if (!plan.Use) continue;
-                if (key.StartsWith("n") && !plan.Counts(plan.NaverCounts).Contains(int.Parse(key.Substring(3)))) continue;
-                if (key.StartsWith("c") && plan.Counts(plan.CoupangCounts).Count == 0) continue;
-                string v; job.Names.TryGetValue(key, out v);
-                int max = Naming.MaxLen(key);
-                // 쿠팡 상품명(100자)은 끝까지 보이게 두 줄
-                bool two = key.StartsWith("c");
-                var tb = new TextBox { Width = 700, Text = v ?? "", Multiline = two, WordWrap = two, Height = two ? 44 : 23, AcceptsReturn = false };
-                var cnt = new Label { AutoSize = true, Margin = new Padding(6, 6, 0, 0) };
-                EventHandler upd = (s, e) => { cnt.Text = tb.TextLength + "/" + max; cnt.ForeColor = tb.TextLength > max ? Color.Firebrick : Color.DimGray; };
-                tb.TextChanged += upd; upd(null, null);
-                nameBoxes[key] = tb;
-                string extra = key.StartsWith("c") ? " (" + string.Join("·", plan.Counts(plan.CoupangCounts)) + "개)" : "";
-                flow.Controls.Add(Row(Lbl(Naming.NameLabel(key) + extra, 130), tb, cnt));
+                string bInfo = string.IsNullOrWhiteSpace(plan.BusinessId) ? "" : " - " + plan.BusinessId;
+                string sInfo = string.IsNullOrWhiteSpace(plan.NameStyle) ? "기본" : plan.NameStyle;
+                flow.Controls.Add(new Label { Text = "■ #" + plan.Id + " 사업자" + bInfo + " (스타일: " + sInfo + ")", AutoSize = true, Font = new Font(Font.FontFamily, 9.5f, FontStyle.Bold), ForeColor = Color.FromArgb(40, 70, 140), Margin = new Padding(4, 6, 0, 2) });
+                foreach (var key in NameKeys.Where(k => k.Substring(1, 1) == plan.Id))
+                {
+                    if (key.StartsWith("n") && !plan.Counts(plan.NaverCounts).Contains(int.Parse(key.Substring(3)))) continue;
+                    if (key.StartsWith("c") && plan.Counts(plan.CoupangCounts).Count == 0) continue;
+                    string v; job.Names.TryGetValue(key, out v);
+                    int max = Naming.MaxLen(key);
+                    bool two = key.StartsWith("c");
+                    var tb = new TextBox { Width = 700, Text = v ?? "", Multiline = two, WordWrap = two, Height = two ? 44 : 23, AcceptsReturn = false };
+                    var cnt = new Label { AutoSize = true, Margin = new Padding(6, 6, 0, 0) };
+                    EventHandler upd = (s, e) => { cnt.Text = tb.TextLength + "/" + max; cnt.ForeColor = tb.TextLength > max ? Color.Firebrick : Color.DimGray; };
+                    tb.TextChanged += upd; upd(null, null);
+                    nameBoxes[key] = tb;
+                    string extra = key.StartsWith("c") ? " (" + string.Join("·", plan.Counts(plan.CoupangCounts)) + "개)" : "";
+                    flow.Controls.Add(Row(Lbl(Naming.NameLabel(key) + extra, 130), tb, cnt));
+                }
             }
 
             // 쿠팡 검색어: 3개 샵별 맞춤형 자동 풀링 (검색량 30 초과 필수)
@@ -776,11 +779,30 @@ namespace SalesTool
             flow.Controls.Add(Row(Lbl("1개 용량", 60), volumeBox, healthBox, healthNote));
 
             // 등록
-            var regButton = new Button { Text = job.Status == "등록 완료" ? "다시 등록" : "등록", Width = 160, Height = 38, Font = new Font(Font.FontFamily, 11f, FontStyle.Bold), Margin = new Padding(3, 14, 3, 3) };
-            regButton.Click += async (s, e) => await RegisterJob(job, regButton);
+            var regButton = new Button { Text = job.Status == "등록 완료" ? "다시 등록" : "등록", Width = 150, Height = 38, Font = new Font(Font.FontFamily, 11f, FontStyle.Bold), Margin = new Padding(3, 14, 3, 3) };
+            regButton.Click += async (s, e) => await RegisterJob(job, regButton, false);
+
+            var retryButton = new Button { Text = "실패한 계정만 재시도", Width = 180, Height = 38, Font = new Font(Font.FontFamily, 11f, FontStyle.Bold), BackColor = Color.FromArgb(255, 235, 235), ForeColor = Color.DarkRed, Margin = new Padding(3, 14, 3, 3) };
+            retryButton.Visible = job.Status == "일부 실패" || (job.Results.Any(r => r.StartsWith("✖")) && job.Results.Any(r => r.StartsWith("✔")));
+            retryButton.Click += async (s, e) => await RegisterJob(job, retryButton, true);
+
             var mode = "네이버 전시중" + " · " + (set.CoupangApprove ? "쿠팡 승인요청까지" : "쿠팡 임시저장") + "  ([설정] 탭에서 바꿈)";
-            flow.Controls.Add(Row(regButton, Note(mode)));
-            resultLabel = Note(string.Join("\n", job.Results));
+            flow.Controls.Add(Row(regButton, retryButton, Note(mode)));
+
+            // 등록 결과 분리 표시 (성공 / 실패)
+            var okList = job.Results.Where(r => r.StartsWith("✔")).ToList();
+            var failList = job.Results.Where(r => r.StartsWith("✖")).ToList();
+            if (okList.Count > 0)
+            {
+                var okLbl = new Label { Text = "등록 성공 (" + okList.Count + "건):\n" + string.Join("\n", okList), AutoSize = true, ForeColor = Color.DarkGreen, Font = new Font(Font.FontFamily, 9.5f), Margin = new Padding(4, 6, 0, 2) };
+                flow.Controls.Add(okLbl);
+            }
+            if (failList.Count > 0)
+            {
+                var failLbl = new Label { Text = "등록 실패 (" + failList.Count + "건):\n" + string.Join("\n", failList), AutoSize = true, ForeColor = Color.Firebrick, Font = new Font(Font.FontFamily, 9.5f), Margin = new Padding(4, 4, 0, 2) };
+                flow.Controls.Add(failLbl);
+            }
+            resultLabel = Note(job.Results.Count == 0 ? "" : "총 " + job.Results.Count + "건 (성공 " + okList.Count + "건, 실패 " + failList.Count + "건)");
             flow.Controls.Add(resultLabel);
             review.ResumeLayout();
             tabs.SelectedTab = reviewTab;
@@ -850,7 +872,7 @@ namespace SalesTool
             if (added) Pump();
         }
 
-        async Task RegisterJob(Job job, Button b)
+        async Task RegisterJob(Job job, Button b, bool failedOnly = false)
         {
             ReadBack(job);
             if (job.Status == "대기" || job.Status == "진행 중")
@@ -869,15 +891,19 @@ namespace SalesTool
             if (!File.Exists(Pipeline.ImagePath(job, "rep", 1))) errors.Add("대표이미지가 없습니다");
             if (errors.Count > 0) { MessageBox.Show(this, string.Join("\n", errors), Text, MessageBoxButtons.OK, MessageBoxIcon.Information); return; }
             var accs = set.Accounts.Where(a => a.Use).Select(a => "#" + a.Id).ToList();
-            if (MessageBox.Show(this, "[" + job.Code + "] 를 " + string.Join(", ", accs) + " 계정에 등록합니다.\n" + "네이버는 전시중으로 올라갑니다." +
-                "\n" + (set.CoupangApprove ? "쿠팡은 승인요청까지 합니다." : "쿠팡은 임시저장만 합니다.") + "\n\n진행할까요?", Text, MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes) return;
+            string prompt = failedOnly
+                ? "[" + job.Code + "] 실패했던 계정/항목만 다시 등록을 시도합니다.\n진행할까요?"
+                : "[" + job.Code + "] 를 " + string.Join(", ", accs) + " 계정에 등록합니다.\n" + "네이버는 전시중으로 올라갑니다." +
+                  "\n" + (set.CoupangApprove ? "쿠팡은 승인요청까지 합니다." : "쿠팡은 임시저장만 합니다.") + "\n\n진행할까요?";
+            if (MessageBox.Show(this, prompt, Text, MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes) return;
 
             b.Enabled = false;
-            job.Results.Clear();
-            resultLabel.Text = "등록 중...";
+            resultLabel.Text = failedOnly ? "실패한 계정 재시도 중..." : "등록 중...";
+            if (!failedOnly) job.Results.Clear();
+            else job.Results.RemoveAll(r => r.StartsWith("✖"));
             try
             {
-                await Task.Run(() => Accounts.Register(job, set, m => Status("[" + job.Code + "] " + m)));
+                await Task.Run(() => Accounts.Register(job, set, m => Status("[" + job.Code + "] " + m), failedOnly));
                 bool ok = job.Results.Any(r => r.StartsWith("✔"));
                 if (ok)
                 {
@@ -897,6 +923,18 @@ namespace SalesTool
             }
         }
 
+        class AccountRowControls
+        {
+            public AccountPlan Plan;
+            public CheckBox Use;
+            public TextBox BusinessId;
+            public ComboBox Style;
+            public TextBox NaverTemplate;
+            public TextBox CoupangTemplate;
+            public TextBox NaverCounts;
+            public TextBox CoupangCounts;
+        }
+
         // ── 설정
         void BuildSettingsTab()
         {
@@ -904,25 +942,45 @@ namespace SalesTool
             var flow = new FlowLayoutPanel { Dock = DockStyle.Fill, FlowDirection = FlowDirection.TopDown, WrapContents = false, AutoScroll = true, Padding = new Padding(12) };
             settingsTab.Controls.Add(flow);
             flow.Controls.Add(Section("계정별 등록 (#1 #2 #3 은 서로 다른 판매자 계정)"));
-            flow.Controls.Add(Row(Lbl("", 70), Lbl("네이버 틀 상품번호", 130), Lbl("쿠팡 틀 상품ID", 130), Lbl("스토어 개수", 90), Lbl("쿠팡 개수", 90), Lbl("키 상태", 200)));
-            var rows = new List<Tuple<AccountPlan, CheckBox, TextBox, TextBox, TextBox, TextBox>>();
+            flow.Controls.Add(Row(Lbl("", 70), Lbl("사업자ID", 95), Lbl("상품명 스타일", 90), Lbl("네이버 틀번호", 115), Lbl("쿠팡 틀번호", 115), Lbl("스토어수", 75), Lbl("쿠팡수", 75), Lbl("msgood 로그인", 170), Lbl("키 상태", 150)));
+            var rows = new List<AccountRowControls>();
             foreach (var a in set.Accounts)
             {
                 var use = new CheckBox { Text = "#" + a.Id + " 사용", Checked = a.Use, Width = 70, Margin = new Padding(3, 5, 0, 0) };
-                var nt = new TextBox { Width = 125, Text = a.NaverTemplate };
-                var ct = new TextBox { Width = 125, Text = a.CoupangTemplate };
-                var nc = new TextBox { Width = 85, Text = a.NaverCounts };
-                var cc = new TextBox { Width = 85, Text = a.CoupangCounts };
+                var bid = new TextBox { Width = 95, Text = a.BusinessId ?? "" };
+                var style = new ComboBox { Width = 90, DropDownStyle = ComboBoxStyle.DropDownList };
+                style.Items.AddRange(new object[] { "기본", "브랜드 앞", "효능 앞", "함량 앞" });
+                style.SelectedItem = string.IsNullOrEmpty(a.NameStyle) ? "기본" : a.NameStyle;
+                var nt = new TextBox { Width = 115, Text = a.NaverTemplate };
+                var ct = new TextBox { Width = 115, Text = a.CoupangTemplate };
+                var nc = new TextBox { Width = 75, Text = a.NaverCounts };
+                var cc = new TextBox { Width = 75, Text = a.CoupangCounts };
+                var cr = MsgoodCred.Load(a.Id);
+                string mgStatus = cr == null ? "msgood ✖" : ((cr.HasMember ? "회원✔ " : "") + (cr.HasSeller ? "셀러✔" : "")).Trim();
+                if (string.IsNullOrEmpty(mgStatus)) mgStatus = "msgood ✖";
+                var mgBtn = Btn("msgood 로그인", () => ShowMsgoodLoginDialog(a.Id));
+                var mgLabel = Note(mgStatus);
                 string keys;
                 try { var c = Accounts.Config(a.Id); keys = c == null ? "키 파일 없음" : (c.HasNaver ? "네이버 ✔" : "네이버 키 없음") + " · " + (c.HasCoupang ? "쿠팡 ✔" : "쿠팡 키 없음"); }
                 catch (Exception ex) { keys = "키 파일 오류: " + ex.Message; }
-                flow.Controls.Add(Row(use, nt, ct, nc, cc, Note(keys)));
-                rows.Add(Tuple.Create(a, use, nt, ct, nc, cc));
+                flow.Controls.Add(Row(use, bid, style, nt, ct, nc, cc, mgBtn, mgLabel, Note(keys)));
+                rows.Add(new AccountRowControls { Plan = a, Use = use, BusinessId = bid, Style = style, NaverTemplate = nt, CoupangTemplate = ct, NaverCounts = nc, CoupangCounts = cc });
             }
-            flow.Controls.Add(Note("틀 상품: 그 계정에 이미 등록된 상품 하나(배송·반품·A/S·공지 설정을 그대로 복사). 스토어 개수는 1,2 까지, 쿠팡 개수는 1~6 중 쉼표로.\n" +
+            flow.Controls.Add(Note("사업자ID: PC 간 상품명 공유 기록에 남길 사업자 식별자 (예: 상호 또는 사업자번호).\n" +
+                                   "상품명 스타일: 기본(키워드 순) / 브랜드 앞 / 효능 앞 / 함량 앞.\n" +
+                                   "틀 상품: 그 계정에 이미 등록된 상품 하나(배송·반품·A/S·공지 설정을 그대로 복사). 스토어 개수는 1,2 까지, 쿠팡 개수는 1~6 중 쉼표로.\n" +
                                    "#2·#3 키는 api_keys.json 의 naver_commerce_2 / coupang_2 (#3 은 _3) 칸에 넣습니다."));
 
             flow.Controls.Add(Section("공통"));
+            var sharedBox = new TextBox { Width = 360, Text = set.SharedFolder ?? "" };
+            var browseBtn = Btn("폴더 선택", () =>
+            {
+                using (var fbd = new FolderBrowserDialog())
+                {
+                    if (fbd.ShowDialog() == DialogResult.OK) sharedBox.Text = fbd.SelectedPath;
+                }
+            });
+            flow.Controls.Add(Row(Lbl("공유 키워드 기록 폴더", 150), sharedBox, browseBtn, Note("PC 간 상품명 중복 방지 (예: 구글 드라이브 폴더)")));
             var ratio = new TextBox { Width = 50, Text = set.MaxRatio.ToString() };
             var normal = new TextBox { Width = 50, Text = set.NormalRate.ToString() };
             var stock = new TextBox { Width = 60, Text = set.Stock.ToString() };
@@ -962,9 +1020,15 @@ namespace SalesTool
                 {
                     foreach (var r in rows)
                     {
-                        r.Item1.Use = r.Item2.Checked; r.Item1.NaverTemplate = r.Item3.Text.Trim(); r.Item1.CoupangTemplate = r.Item4.Text.Trim();
-                        r.Item1.NaverCounts = r.Item5.Text.Trim(); r.Item1.CoupangCounts = r.Item6.Text.Trim();
+                        r.Plan.Use = r.Use.Checked;
+                        r.Plan.BusinessId = r.BusinessId.Text.Trim();
+                        r.Plan.NameStyle = Convert.ToString(r.Style.SelectedItem);
+                        r.Plan.NaverTemplate = r.NaverTemplate.Text.Trim();
+                        r.Plan.CoupangTemplate = r.CoupangTemplate.Text.Trim();
+                        r.Plan.NaverCounts = r.NaverCounts.Text.Trim();
+                        r.Plan.CoupangCounts = r.CoupangCounts.Text.Trim();
                     }
+                    set.SharedFolder = sharedBox.Text.Trim();
                     double d; int i;
                     if (double.TryParse(ratio.Text, out d) && d > 0) set.MaxRatio = d;
                     if (double.TryParse(normal.Text, out d) && d > 0) set.NormalRate = d;
@@ -983,30 +1047,14 @@ namespace SalesTool
                 Btn("키 다시 읽기", () => { Accounts.Reset(); BuildSettingsTab(); })));
             flow.Controls.Add(Note("키 파일: " + Accounts.KeyFile));
 
-            // msgood4u 자동 로그인
-            flow.Controls.Add(Section("msgood4u 자동 로그인 (이 PC의 이 Windows 사용자만 풀 수 있게 암호화해서 저장)"));
-            var cr = MsgoodCred.Load() ?? new MsgoodCred();
-            var mid = new TextBox { Width = 140, Text = cr.Id ?? "" };
-            var mpw = new TextBox { Width = 140, UseSystemPasswordChar = true };
-            var scode = new TextBox { Width = 100, Text = cr.SellerCode ?? "" };
-            var sid = new TextBox { Width = 120, Text = cr.SellerId ?? "" };
-            var spw = new TextBox { Width = 120, UseSystemPasswordChar = true };
-            flow.Controls.Add(Row(Lbl("회원 아이디", 80), mid, Lbl("비밀번호", 60), mpw, Note(cr.HasMember ? "(저장됨 · 바꿀 때만 입력)" : "")));
-            flow.Controls.Add(Row(Lbl("셀러로그인", 80), Lbl("판매자 코드", 95), scode, Lbl("아이디", 55), sid, Lbl("비밀번호", 60), spw, Note(cr.HasSeller ? "(저장됨 · 바꿀 때만 입력)" : "")));
-            flow.Controls.Add(Note("회원 아이디: 상품의 도매가를 읽을 때 씁니다. 셀러로그인: 자동 발주·송장 확인에 씁니다 (msgood4u 셀러 관리자 로그인 화면의 판매자 코드·아이디·비밀번호)."));
+            // msgood4u 자동 로그인 안내
+            flow.Controls.Add(Section("msgood4u 자동 로그인 (계정별 암호화 저장)"));
+            flow.Controls.Add(Note("각 사업자(계정 #1, #2, #3)마다 msgood4u 회원/셀러 로그인을 따로 사용합니다.\n위 '계정별 등록' 표의 각 계정 줄에서 [msgood 로그인] 버튼을 눌러 아이디·비밀번호를 설정하세요."));
             flow.Controls.Add(Row(
-                Btn("로그인 정보 저장", () =>
-                {
-                    var c2 = MsgoodCred.Load() ?? new MsgoodCred();
-                    c2.Id = mid.Text.Trim(); if (mpw.Text.Length > 0) c2.Pw = mpw.Text;
-                    c2.SellerCode = scode.Text.Trim(); c2.SellerId = sid.Text.Trim(); if (spw.Text.Length > 0) c2.SellerPw = spw.Text;
-                    c2.Save();
-                    BuildSettingsTab();
-                    Status("msgood4u 로그인 정보를 저장했습니다. 로그인이 풀리면 자동으로 다시 로그인합니다.");
-                }),
-                Btn("지금 자동 로그인 해 보기", async () => { tabs.SelectedTab = msgoodTab; if (await msgood.AutoLogin(Status)) await QueuePriceIfLoggedIn(); }),
-                Btn("저장한 정보 지우기", () => { MsgoodCred.Delete(); BuildSettingsTab(); Status("msgood4u 로그인 정보를 지웠습니다."); })));
-            flow.Controls.Add(Note("파일: " + MsgoodCred.FilePath + "  (다른 PC나 다른 Windows 사용자로 복사하면 풀리지 않습니다. 배포용에는 들어가지 않습니다.)"));
+                Btn("#1 지금 로그인", async () => { tabs.SelectedTab = msgoodTab; if (await msgood.AutoLogin(Status, MsgoodCred.Load("1"))) await QueuePriceIfLoggedIn(); }),
+                Btn("#2 지금 로그인", async () => { tabs.SelectedTab = msgoodTab; if (await msgood.AutoLogin(Status, MsgoodCred.Load("2"))) await QueuePriceIfLoggedIn(); }),
+                Btn("#3 지금 로그인", async () => { tabs.SelectedTab = msgoodTab; if (await msgood.AutoLogin(Status, MsgoodCred.Load("3"))) await QueuePriceIfLoggedIn(); })));
+            flow.Controls.Add(Note("비밀번호는 이 PC의 Windows 사용자 전용 암호화(DPAPI)로 저장되어 배포 파일에 포함되지 않으며 외부로 유출되지 않습니다."));
 
             // 휴대폰 앱
             flow.Controls.Add(Section("휴대폰 앱 (안드로이드) — 같은 와이파이 또는 Tailscale 로 이 PC에 접속"));
@@ -1192,7 +1240,7 @@ namespace SalesTool
                     var j = find(arg("code")); if (j == null) return MobileResponse.Error(404, "상품이 목록에 없습니다");
                     var accs = string.Join(", ", set.Accounts.Where(a => a.Use).Select(a => "#" + a.Id));
                     return J(new { code = j.Code, status = j.Status, name = j.Name, seed = j.Seed, naverCat = j.NaverCatName, coupangCat = j.CoupangCatName,
-                        names = j.Names.Select(kv => new { label = Naming.NameLabel(kv.Key), text = kv.Value }).ToList(), prices = Enumerable.Range(1, 6).Select(n => j.Prices[n]).ToList(),
+                        names = j.Names.Select(kv => new { key = kv.Key, label = Naming.NameLabel(kv.Key), text = kv.Value }).ToList(), prices = Enumerable.Range(1, 6).Select(n => j.Prices[n]).ToList(),
                         tags = j.CoupangTags,
                         tags1 = j.CoupangTags1 != null && j.CoupangTags1.Count > 0 ? j.CoupangTags1 : j.CoupangTags,
                         tags2 = j.CoupangTags2 ?? new List<string>(),
@@ -1218,10 +1266,24 @@ namespace SalesTool
                 case "/api/register":
                 {
                     var j = find(arg("code")); if (j == null) return MobileResponse.Error(404, "상품이 목록에 없습니다");
+                    bool failedOnly = (arg("failedOnly") ?? "").ToLowerInvariant() == "true";
                     var errs = RegisterProblems(j);
-                    if (errs.Count > 0) return MobileResponse.Error(400, string.Join(" / ", errs));
-                    await RegisterCore(j);
+                    if (errs.Count > 0 && !failedOnly) return MobileResponse.Error(400, string.Join(" / ", errs));
+                    await RegisterCore(j, failedOnly);
                     return J(new { message = "[" + j.Code + "] " + j.Status, results = j.Results });
+                }
+                case "/api/save_names":
+                {
+                    var j = find(arg("code")); if (j == null) return MobileResponse.Error(404, "상품이 목록에 없습니다");
+                    foreach (var key in NameKeys)
+                    {
+                        var val = arg("name_" + key);
+                        if (!string.IsNullOrEmpty(val)) j.Names[key] = Regex.Replace(val.Trim(), @"\s+", " ");
+                    }
+                    Store.SaveJob(j);
+                    RefreshList();
+                    if (current == j) ShowJob(j);
+                    return J(new { message = "상품명을 저장했습니다." });
                 }
                 case "/api/order":
                     await OrderRun(false);
@@ -1276,13 +1338,14 @@ namespace SalesTool
             return errors;
         }
 
-        async Task RegisterCore(Job job)
+        async Task RegisterCore(Job job, bool failedOnly = false)
         {
             if (current == job) ReadBack(job);
-            job.Results.Clear();
+            if (!failedOnly) job.Results.Clear();
+            else job.Results.RemoveAll(r => r.StartsWith("✖"));
             try
             {
-                await Task.Run(() => Accounts.Register(job, set, m => Status("[" + job.Code + "] " + m)));
+                await Task.Run(() => Accounts.Register(job, set, m => Status("[" + job.Code + "] " + m), failedOnly));
                 bool ok = job.Results.Any(r => r.StartsWith("✔"));
                 if (ok)
                 {
@@ -1311,39 +1374,56 @@ namespace SalesTool
                 var good = orders.Where(o => o.Problem == null).Take(100).ToList();
                 if (good.Count == 0) { StockLog("새로 발주할 주문이 없습니다."); return; }
                 foreach (var o in good) StockLog("  · " + o);
-                var rec = OrderSync.LoadRecord();
-                foreach (var o in good) rec.Pending[o.Key] = DateTime.Now.ToString("yyyy-MM-dd HH:mm");
-                OrderSync.SaveRecord(rec);
-                var res = await msgood.BulkOrder(OrderSync.BuildExcel(good), true, StockLog);
-                rec = OrderSync.LoadRecord();
-                if (res.Ordered)
+
+                // 사업자(계정 1·2·3)별로 분리 발주
+                var byAccount = good.GroupBy(o => string.IsNullOrEmpty(o.Account) ? "1" : o.Account).ToList();
+                foreach (var grp in byAccount)
                 {
-                    foreach (var o in good)
+                    string accId = grp.Key;
+                    var accOrders = grp.ToList();
+                    var cred = MsgoodCred.Load(accId);
+                    if (cred == null || !cred.HasSeller)
                     {
-                        rec.Pending.Remove(o.Key);
-                        rec.Done[o.Key] = new OrderDone { Market = o.Market, Account = o.Account, Key = o.Key, OrderId = o.OrderId, ProductOrderId = o.ProductOrderId, ShipmentBoxId = o.ShipmentBoxId,
-                            VendorItemId = o.VendorItemId, Code = o.Code, Qty = o.Qty, Orderer = o.Orderer, Receiver = o.Receiver, OrderedAt = DateTime.Now.ToString("yyyy-MM-dd HH:mm") };
+                        StockLog("※ [계정 " + accId + "] msgood 로그인 필요 (발주 건너뜀 - 대기 주문 " + accOrders.Count + "건)");
+                        Phone("⚠ [계정 " + accId + "] msgood 로그인 필요: 대기 주문 " + accOrders.Count + "건");
+                        Notify("계정 " + accId + " msgood 로그인 필요", "계정 #" + accId + "의 msgood4u 셀러 로그인 정보가 없습니다.\n[설정] 탭의 계정 #" + accId + " 줄에서 [msgood 로그인]을 완료해 주세요.\n\n발주 대기 주문: " + accOrders.Count + "건");
+                        continue;
                     }
+
+                    var rec = OrderSync.LoadRecord();
+                    foreach (var o in accOrders) rec.Pending[o.Key] = DateTime.Now.ToString("yyyy-MM-dd HH:mm");
                     OrderSync.SaveRecord(rec);
-                    StockLog("✔ " + res.Message + " (" + good.Count + "건, " + res.Total.ToString("#,0") + "원)");
-                    Phone("✔ 자동 발주 " + good.Count + "건, " + res.Total.ToString("#,0") + "원\n" + string.Join("\n", good.Select(o => o.Market + " " + o.Code + " x" + o.Qty)));
-                    await Task.Run(() => OrderSync.ConfirmInStores(good, StockLog));
-                }
-                else if (res.Unknown)
-                {
-                    // 결과를 모르면 다시 보내지 않음 (두 번 발주 방지) → 직접 확인
-                    StockLog("✖ " + res.Message);
-                    Phone("⚠ 발주 결과 확인 필요: " + res.Message);
-                    Notify("발주 결과 확인 필요", res.Message + "\n\n" + string.Join("\n", good.Select(o => o.ToString()).Take(15)));
-                }
-                else
-                {
-                    foreach (var o in good) rec.Pending.Remove(o.Key);
-                    if (res.Shortage > 0) rec.LastShortage = DateTime.Now.ToString("MM-dd HH:mm") + " " + res.Message;
-                    OrderSync.SaveRecord(rec);
-                    StockLog("✖ " + res.Message);
-                    Phone((res.Shortage > 0 ? "⚠ 적립금 부족: " : "✖ 발주 못 함: ") + res.Message + "\n(대기 주문 " + good.Count + "건, 다음 " + NextOrderSlot() + "에 다시 시도)");
-                    Notify(res.Shortage > 0 ? "적립금 부족" : "발주하지 못했습니다", res.Message + "\n\n발주 대기 주문 " + good.Count + "건. 다음 " + NextOrderSlot() + "에 다시 시도합니다.");
+
+                    var res = await msgood.BulkOrder(OrderSync.BuildExcel(accOrders), submit: auto, StockLog, cred);
+                    rec = OrderSync.LoadRecord();
+                    if (res.Ordered)
+                    {
+                        foreach (var o in accOrders)
+                        {
+                            rec.Pending.Remove(o.Key);
+                            rec.Done[o.Key] = new OrderDone { Market = o.Market, Account = o.Account, Key = o.Key, OrderId = o.OrderId, ProductOrderId = o.ProductOrderId, ShipmentBoxId = o.ShipmentBoxId,
+                                VendorItemId = o.VendorItemId, Code = o.Code, Qty = o.Qty, Orderer = o.Orderer, Receiver = o.Receiver, OrderedAt = DateTime.Now.ToString("yyyy-MM-dd HH:mm") };
+                        }
+                        OrderSync.SaveRecord(rec);
+                        StockLog("✔ [계정 " + accId + "] " + res.Message + " (" + accOrders.Count + "건, " + res.Total.ToString("#,0") + "원)");
+                        Phone("✔ [계정 " + accId + "] 자동 발주 " + accOrders.Count + "건, " + res.Total.ToString("#,0") + "원\n" + string.Join("\n", accOrders.Select(o => o.Market + " " + o.Code + " x" + o.Qty)));
+                        await Task.Run(() => OrderSync.ConfirmInStores(accOrders, StockLog));
+                    }
+                    else if (res.Unknown)
+                    {
+                        StockLog("✖ [계정 " + accId + "] " + res.Message);
+                        Phone("⚠ [계정 " + accId + "] 발주 결과 확인 필요: " + res.Message);
+                        Notify("[계정 " + accId + "] 발주 결과 확인 필요", res.Message + "\n\n" + string.Join("\n", accOrders.Select(o => o.ToString()).Take(15)));
+                    }
+                    else
+                    {
+                        foreach (var o in accOrders) rec.Pending.Remove(o.Key);
+                        if (res.Shortage > 0) rec.LastShortage = DateTime.Now.ToString("MM-dd HH:mm") + " [계정 " + accId + "] " + res.Message;
+                        OrderSync.SaveRecord(rec);
+                        StockLog("✖ [계정 " + accId + "] " + res.Message);
+                        Phone((res.Shortage > 0 ? "⚠ [계정 " + accId + "] 적립금 부족: " : "✖ [계정 " + accId + "] 발주 못 함: ") + res.Message + "\n(대기 주문 " + accOrders.Count + "건, 다음 " + NextOrderSlot() + "에 다시 시도)");
+                        Notify(res.Shortage > 0 ? "[계정 " + accId + "] 적립금 부족" : "[계정 " + accId + "] 발주하지 못했습니다", res.Message + "\n\n계정 #" + accId + " 발주 대기 주문 " + accOrders.Count + "건. 다음 " + NextOrderSlot() + "에 다시 시도합니다.");
+                    }
                 }
             }
             catch (Exception ex) { StockLog("자동 발주 오류: " + ex.Message); }
@@ -1362,15 +1442,30 @@ namespace SalesTool
                 var orders = await Task.Run(() => OrderSync.FetchNew(set, StockLog, problems));
                 var good = orders.Where(o => o.Problem == null).Take(100).ToList();
                 if (good.Count == 0) { StockLog("발주할 주문이 없어 적립금 확인을 건너뜁니다."); return; }
-                var res = await msgood.BulkOrder(OrderSync.BuildExcel(good), false, StockLog);
-                if (res.Shortage > 0)
+
+                var byAccount = good.GroupBy(o => string.IsNullOrEmpty(o.Account) ? "1" : o.Account).ToList();
+                foreach (var grp in byAccount)
                 {
-                    var rec = OrderSync.LoadRecord(); rec.LastShortage = DateTime.Now.ToString("MM-dd HH:mm") + " " + res.Message; OrderSync.SaveRecord(rec);
-                    StockLog("⚠ " + res.Message);
-                    Phone("⚠ 적립금 부족 (" + slot + " 10분 전): " + res.Message + "\n대기 주문 " + good.Count + "건. 적립 시간 전에 적립금을 넣어 주세요. 다음 발주 " + NextOrderSlot());
-                    Notify("적립금 부족", res.Message + "\n\n" + slot + " 적립 전에 적립금을 넣어 주세요.\n대기 주문 " + good.Count + "건, 다음 발주 " + NextOrderSlot());
+                    string accId = grp.Key;
+                    var accOrders = grp.ToList();
+                    var cred = MsgoodCred.Load(accId);
+                    if (cred == null || !cred.HasSeller)
+                    {
+                        StockLog("※ [계정 " + accId + "] msgood 셀러 로그인 필요 (적립금 확인 건너뜀)");
+                        Phone("⚠ [계정 " + accId + "] msgood 로그인 필요 (적립금 확인 건너뜀)");
+                        Notify("계정 " + accId + " msgood 로그인 필요", "계정 #" + accId + "의 msgood4u 셀러 로그인 정보가 없습니다.");
+                        continue;
+                    }
+                    var res = await msgood.BulkOrder(OrderSync.BuildExcel(accOrders), false, StockLog, cred);
+                    if (res.Shortage > 0)
+                    {
+                        var rec = OrderSync.LoadRecord(); rec.LastShortage = DateTime.Now.ToString("MM-dd HH:mm") + " [계정 " + accId + "] " + res.Message; OrderSync.SaveRecord(rec);
+                        StockLog("⚠ [계정 " + accId + "] " + res.Message);
+                        Phone("⚠ [계정 " + accId + "] 적립금 부족 (" + slot + " 10분 전): " + res.Message + "\n대기 주문 " + accOrders.Count + "건. 적립 시간 전에 적립금을 넣어 주세요. 다음 발주 " + NextOrderSlot());
+                        Notify("[계정 " + accId + "] 적립금 부족", res.Message + "\n\n" + slot + " 적립 전에 적립금을 넣어 주세요.\n계정 #" + accId + " 대기 주문 " + accOrders.Count + "건, 다음 발주 " + NextOrderSlot());
+                    }
+                    else StockLog("[계정 " + accId + "] 적립금 확인: " + res.Message);
                 }
-                else StockLog("적립금 확인: " + res.Message);
             }
             catch (Exception ex) { StockLog("적립금 확인 오류: " + ex.Message); }
             finally { orderBusy = false; }
@@ -1384,37 +1479,109 @@ namespace SalesTool
                 var rec = OrderSync.LoadRecord();
                 var todo = rec.Done.Values.Where(d => string.IsNullOrEmpty(d.Tracking)).ToList();
                 if (todo.Count == 0) { StockLog("송장을 넣을 주문이 없습니다."); return; }
-                StockLog("msgood4u 송장 확인 중... (" + todo.Count + "건)");
-                var rows = await msgood.OrderList(20, StockLog);
-                if (rows == null) { StockLog("msgood4u 주문/배송조회를 읽지 못했습니다."); return; }
-                var used = new HashSet<Dictionary<string, object>>();
-                int sent = 0;
-                foreach (var d in todo)
+
+                var byAccount = todo.GroupBy(d => string.IsNullOrEmpty(d.Account) ? "1" : d.Account).ToList();
+                int totalSent = 0;
+                foreach (var grp in byAccount)
                 {
-                    string who = string.IsNullOrEmpty(d.Orderer) || d.Orderer == d.Receiver ? d.Receiver : d.Orderer + "(" + d.Receiver + ")";
-                    Func<Dictionary<string, object>, string, string> cell = (r, k) => r.ContainsKey(k) ? Convert.ToString(r[k]) : "";
-                    // 원장주문번호가 줄에 있으면 그것으로, 없으면 주문자명·수량으로
-                    var row = rows.FirstOrDefault(r => !used.Contains(r) && Convert.ToString(r["_html"]).Contains(d.OrderId))
-                           ?? rows.FirstOrDefault(r => !used.Contains(r) && (cell(r, "주문자명").Contains(who) || cell(r, "주문자명").Contains(d.Receiver ?? "\u0000")) && Regex.Replace(cell(r, "수량"), "[^0-9]", "") == d.Qty.ToString());
-                    if (row == null) continue;
-                    string tr = cell(row, "송장번호");
-                    var num = Regex.Match(tr.Replace("-", ""), "[0-9]{8,}");
-                    if (!num.Success) continue;
-                    used.Add(row);
-                    try
+                    string accId = grp.Key;
+                    var accTodo = grp.ToList();
+                    var cred = MsgoodCred.Load(accId);
+                    if (cred == null || !cred.HasSeller)
                     {
-                        string err = await Task.Run(() => OrderSync.SendTracking(d, tr, set.DefaultCourier, num.Value));
-                        if (err != null) { StockLog("※ 송장 못 넣음 " + d.Market + " " + d.OrderId + ": " + err); continue; }
-                        sent++;
-                        StockLog("✔ 송장 입력 " + d.Market + " #" + d.Account + " " + d.OrderId + " → " + d.Courier + " " + d.Tracking);
+                        StockLog("※ [계정 " + accId + "] msgood 셀러 로그인 필요 (송장 확인 건너뜀)");
+                        continue;
                     }
-                    catch (Exception ex) { StockLog("✖ 송장 입력 오류 " + d.Market + " " + d.OrderId + ": " + ex.Message); }
+                    StockLog("msgood4u [계정 " + accId + "] 송장 확인 중... (" + accTodo.Count + "건)");
+                    var rows = await msgood.OrderList(20, StockLog, cred);
+                    if (rows == null) { StockLog("※ [계정 " + accId + "] msgood4u 주문/배송조회를 읽지 못했습니다."); continue; }
+                    var used = new HashSet<Dictionary<string, object>>();
+                    int sent = 0;
+                    foreach (var d in accTodo)
+                    {
+                        string who = string.IsNullOrEmpty(d.Orderer) || d.Orderer == d.Receiver ? d.Receiver : d.Orderer + "(" + d.Receiver + ")";
+                        Func<Dictionary<string, object>, string, string> cell = (r, k) => r.ContainsKey(k) ? Convert.ToString(r[k]) : "";
+                        var row = rows.FirstOrDefault(r => !used.Contains(r) && Convert.ToString(r["_html"]).Contains(d.OrderId))
+                               ?? rows.FirstOrDefault(r => !used.Contains(r) && (cell(r, "주문자명").Contains(who) || cell(r, "주문자명").Contains(d.Receiver ?? "\u0000")) && Regex.Replace(cell(r, "수량"), "[^0-9]", "") == d.Qty.ToString());
+                        if (row == null) continue;
+                        string tr = cell(row, "송장번호");
+                        var num = Regex.Match(tr.Replace("-", ""), "[0-9]{8,}");
+                        if (!num.Success) continue;
+                        used.Add(row);
+                        try
+                        {
+                            string err = await Task.Run(() => OrderSync.SendTracking(d, tr, set.DefaultCourier, num.Value));
+                            if (err != null) { StockLog("※ 송장 못 넣음 " + d.Market + " " + d.OrderId + ": " + err); continue; }
+                            sent++;
+                            totalSent++;
+                            StockLog("✔ 송장 입력 " + d.Market + " #" + d.Account + " " + d.OrderId + " → " + d.Courier + " " + d.Tracking);
+                        }
+                        catch (Exception ex) { StockLog("✖ 송장 입력 오류 " + d.Market + " " + d.OrderId + ": " + ex.Message); }
+                    }
                 }
                 OrderSync.SaveRecord(rec);
-                StockLog("송장 " + sent + "건 입력했습니다.");
-                if (sent > 0) Phone("✔ 송장 " + sent + "건 입력했습니다.");
+                StockLog("송장 총 " + totalSent + "건 입력했습니다.");
+                if (totalSent > 0) Phone("✔ 송장 " + totalSent + "건 입력했습니다.");
             }
             catch (Exception ex) { StockLog("송장 확인 오류: " + ex.Message); }
+        }
+
+        void ShowMsgoodLoginDialog(string accId)
+        {
+            var cr = MsgoodCred.Load(accId) ?? new MsgoodCred();
+            var dlg = new Form { Text = "계정 #" + accId + " msgood4u 로그인 설정", Width = 520, Height = 340, StartPosition = FormStartPosition.CenterParent, FormBorderStyle = FormBorderStyle.FixedDialog, MaximizeBox = false, MinimizeBox = false };
+            var p = new FlowLayoutPanel { Dock = DockStyle.Fill, FlowDirection = FlowDirection.TopDown, WrapContents = false, AutoScroll = true, Padding = new Padding(12) };
+
+            var mid = new TextBox { Width = 140, Text = cr.Id ?? "" };
+            var mpw = new TextBox { Width = 140, UseSystemPasswordChar = true };
+            var scode = new TextBox { Width = 100, Text = cr.SellerCode ?? "" };
+            var sid = new TextBox { Width = 120, Text = cr.SellerId ?? "" };
+            var spw = new TextBox { Width = 120, UseSystemPasswordChar = true };
+
+            p.Controls.Add(new Label { Text = "계정 #" + accId + " msgood4u 회원 로그인 (도매가 확인용)", AutoSize = true, Font = new Font(Font.FontFamily, 9.5f, FontStyle.Bold) });
+            p.Controls.Add(Row(Lbl("아이디", 70), mid, Lbl("비밀번호", 60), mpw, Note(cr.HasMember ? "(저장됨 · 변경 시만 입력)" : "")));
+
+            p.Controls.Add(new Label { Text = "계정 #" + accId + " msgood4u 셀러 로그인 (자동발주·송장 확인용)", AutoSize = true, Font = new Font(Font.FontFamily, 9.5f, FontStyle.Bold), Margin = new Padding(0, 10, 0, 0) });
+            p.Controls.Add(Row(Lbl("판매자코드", 70), scode, Lbl("아이디", 50), sid, Lbl("비밀번호", 55), spw, Note(cr.HasSeller ? "(저장됨 · 변경 시만 입력)" : "")));
+
+            p.Controls.Add(Note("비밀번호는 이 PC의 Windows 사용자 전용 암호화(DPAPI)로 저장됩니다."));
+
+            var btnRow = Row(
+                Btn("저장", () =>
+                {
+                    var c2 = MsgoodCred.Load(accId) ?? new MsgoodCred();
+                    c2.Id = mid.Text.Trim(); if (mpw.Text.Length > 0) c2.Pw = mpw.Text;
+                    c2.SellerCode = scode.Text.Trim(); c2.SellerId = sid.Text.Trim(); if (spw.Text.Length > 0) c2.SellerPw = spw.Text;
+                    c2.Save(accId);
+                    BuildSettingsTab();
+                    Status("계정 #" + accId + " msgood4u 로그인 정보를 저장했습니다.");
+                    dlg.Close();
+                }),
+                Btn("자동 로그인 테스트", async () =>
+                {
+                    var c2 = MsgoodCred.Load(accId) ?? new MsgoodCred();
+                    c2.Id = mid.Text.Trim(); if (mpw.Text.Length > 0) c2.Pw = mpw.Text;
+                    c2.SellerCode = scode.Text.Trim(); c2.SellerId = sid.Text.Trim(); if (spw.Text.Length > 0) c2.SellerPw = spw.Text;
+                    tabs.SelectedTab = msgoodTab;
+                    if (await msgood.AutoLogin(Status, c2))
+                    {
+                        if (c2.HasSeller) await msgood.SellerLogin(Status, c2);
+                        Status("계정 #" + accId + " msgood4u 로그인 테스트 성공!");
+                    }
+                }),
+                Btn("저장 정보 삭제", () =>
+                {
+                    MsgoodCred.Delete(accId);
+                    BuildSettingsTab();
+                    Status("계정 #" + accId + " msgood4u 로그인 정보를 삭제했습니다.");
+                    dlg.Close();
+                }),
+                Btn("닫기", () => dlg.Close())
+            );
+            p.Controls.Add(btnRow);
+            p.Controls.Add(Note("파일: " + MsgoodCred.FilePathFor(accId)));
+            dlg.Controls.Add(p);
+            dlg.ShowDialog(this);
         }
 
         void Notify(string title, string msg)

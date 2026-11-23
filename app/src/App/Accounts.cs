@@ -57,14 +57,26 @@ namespace SalesTool
             return (double.Parse(m.Groups[1].Value) * 2).ToString("0.##") + m.Groups[2].Value;
         }
 
-        // 계정별로: 네이버 스토어 1개·2개 상품 + 쿠팡 옵션 상품
-        public static void Register(Job job, AppSettings set, Action<string> log)
+        // 계정별로: 네이버 스토어 1개·2개 상품 + 쿠팡 옵션 상품 (failedOnly=true 시 실패한 항목만 재시도)
+        public static void Register(Job job, AppSettings set, Action<string> log, bool failedOnly = false)
         {
             var facts = job.OcrText != null ? ProductFacts.Extract(job.OcrText, job.Name, job.Volume) : null;
             if (facts != null) facts.HealthFunctional = job.Health;   // 건강기능식품 여부는 검토 화면의 체크(엠굿 분류 기준)를 따름
             var extras = Pipeline.ExtraFiles(job);
             try { Pipeline.EnsureNaverImages(job); } catch (Exception ex) { log("네이버용 대표이미지(상표 그대로) 만들기 실패, 상표 가린 이미지로 등록: " + ex.Message); }
             bool any = false;
+
+            if (failedOnly)
+            {
+                // 실패한 메시지만 지우고 성공한 메시지는 보존
+                job.Results.RemoveAll(r => r.StartsWith("✖"));
+            }
+            else
+            {
+                job.Results.Clear();
+                job.Registered_Ids.Clear();
+            }
+
             foreach (var plan in set.Accounts.Where(a => a.Use))
             {
                 string a = plan.Id;
@@ -93,6 +105,9 @@ namespace SalesTool
                 {
                     string key = "n" + a + "_" + n;
                     string label = "#" + a + " 스토어 " + n + "개";
+
+                    if (failedOnly && job.Registered_Ids.ContainsKey(key)) continue;
+
                     if (!reg.HasNaverTemplate) { job.Results.Add("✖ " + label + ": 네이버 틀 상품이 없습니다 ([설정] 탭)"); continue; }
                     string name; job.Names.TryGetValue(key, out name);
                     var item = new NaverItem
@@ -111,6 +126,8 @@ namespace SalesTool
                         string id = reg.RegisterNaver(p, item, log);
                         job.Registered_Ids[key] = id;
                         job.Results.Add("✔ " + label + " 등록: " + id);
+                        if (!string.IsNullOrWhiteSpace(set.SharedFolder))
+                            SharedNames.Append(set.SharedFolder, job.Code, plan.BusinessId, name, Regex.Split(name ?? "", @"\s+"));
                     }
                     catch (Exception ex) { job.Results.Add("✖ " + label + " 실패: " + Explain(a, ex)); }
                 }
@@ -118,17 +135,24 @@ namespace SalesTool
                 var counts = plan.Counts(plan.CoupangCounts);
                 if (counts.Count > 0)
                 {
+                    string key = "c" + a;
                     string label = "#" + a + " 쿠팡 " + string.Join("·", counts) + "개";
+
+                    if (failedOnly && job.Registered_Ids.ContainsKey(key)) continue;
+
                     if (!reg.HasCoupangTemplate) { job.Results.Add("✖ " + label + ": 쿠팡 틀 상품이 없습니다 ([설정] 탭)"); continue; }
-                    string cname; job.Names.TryGetValue("c" + a, out cname);
+                    string cname; job.Names.TryGetValue(key, out cname);
                     p.CoupangName = cname;
                     foreach (int n in counts) p.CoupangOptions.Add(new CoupangOption { Count = n, Price = job.Prices[n], ImageFile = Pipeline.ImagePath(job, "rep", n) });
                     any = true;
                     try
                     {
                         string id = reg.RegisterCoupang(p, null, log);
-                        job.Registered_Ids["c" + a] = id;
+                        job.Registered_Ids[key] = id;
                         job.Results.Add("✔ " + label + " 등록: " + id);
+                        if (!string.IsNullOrWhiteSpace(set.SharedFolder))
+                            SharedNames.Append(set.SharedFolder, job.Code, plan.BusinessId, cname, Regex.Split(cname ?? "", @"\s+"));
+
                         // 마지막 단계: 임시저장된 상품의 상품조회에 쿠팡 검색어가 들어갔는지 확인하고 없으면 넣음
                         var pid = Regex.Match(id ?? "", @"\d{6,}");
                         if (pid.Success && targetTags.Count > 0)

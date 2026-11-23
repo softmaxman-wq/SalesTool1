@@ -103,6 +103,8 @@ namespace SalesTool
     {
         public string Id;                 // "1", "2", "3"
         public bool Use;
+        public string BusinessId = "";    // 사업자명 또는 사업자번호
+        public string NameStyle = "기본"; // "기본", "브랜드 앞", "효능 앞", "함량 앞"
         public string NaverTemplate = "", CoupangTemplate = "";
         public string NaverCounts = "1,2";
         public string CoupangCounts = "1,3,5";
@@ -132,6 +134,7 @@ namespace SalesTool
         public string GithubRepo = "";              // GitHub 저장소 (owner/repo) 자동 업데이트용
         public bool AutoUpdateCheck = true;         // 시작 시 자동 업데이트 확인
         public bool AutoAiImage = false;            // 대기열 상품 등록 시 AI 3D 대표이미지 자동 생성
+        public string SharedFolder = "";            // 공유 키워드 기록 폴더 경로 (예: 구글 드라이브 폴더)
         public List<AccountPlan> Accounts = new List<AccountPlan>
         {
             new AccountPlan { Id = "1", Use = true,  NaverCounts = "1,2", CoupangCounts = "1,3,5" },

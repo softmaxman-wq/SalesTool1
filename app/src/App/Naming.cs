@@ -836,6 +836,170 @@ namespace SalesTool
                         .Distinct(StringComparer.OrdinalIgnoreCase).Take(n).ToList();
         }
 
+        public static string ApplyStyle(string style, Job job, string seed, string name, int maxLen)
+        {
+            if (string.IsNullOrWhiteSpace(style) || style == "기본" || job == null || string.IsNullOrWhiteSpace(name))
+                return name;
+
+            string prefix = null;
+            if (style == "브랜드 앞" && !string.IsNullOrWhiteSpace(job.Brand))
+            {
+                prefix = job.Brand.Trim();
+            }
+            else if (style == "효능 앞")
+            {
+                var cw = (job.Concern ?? new List<KwRow>()).FirstOrDefault(c => !string.IsNullOrWhiteSpace(c.Word));
+                if (cw != null) prefix = cw.Word.Trim();
+                else
+                {
+                    var eff = job.Keywords.FirstOrDefault(k => k.TagReason != null && k.TagReason.Contains("효능"));
+                    if (eff != null) prefix = eff.Word.Trim();
+                }
+            }
+            else if (style == "함량 앞")
+            {
+                if (!string.IsNullOrWhiteSpace(job.Volume)) prefix = job.Volume.Trim();
+                else
+                {
+                    var m = Regex.Match(job.Name ?? "", @"\d+\s*(mg|g|ml|정|캡슐|포|환)");
+                    if (m.Success) prefix = m.Value.Trim();
+                }
+            }
+
+            if (string.IsNullOrWhiteSpace(prefix)) return name;
+
+            if (name.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)) return name;
+
+            var parts = Regex.Split(name, @"\s+").Where(w => w.Length > 0 && !string.Equals(w, prefix, StringComparison.OrdinalIgnoreCase)).ToList();
+            parts.Insert(0, prefix);
+
+            var joined = string.Join(" ", parts);
+            while (joined.Length > maxLen && parts.Count > 1)
+            {
+                parts.RemoveAt(parts.Count - 1);
+                joined = string.Join(" ", parts);
+            }
+            return joined;
+        }
+
+        public static Dictionary<string, string> BuildForAccounts(
+            Job job,
+            AppSettings set,
+            List<string> words,
+            List<string> filler = null,
+            List<string> coupangExtra = null,
+            Func<string, WordStat> stat = null)
+        {
+            var seed = job.Seed ?? "";
+            Func<List<string>, bool, List<string>> arr = (ws, byRank) => stat == null ? ws : Arrange(ws, seed, stat, byRank);
+            if (filler != null) words = words.Concat(filler.Where(f => !words.Contains(f, StringComparer.OrdinalIgnoreCase))).ToList();
+            var cwords = coupangExtra == null ? words : words.Concat(coupangExtra.Where(f => !words.Contains(f, StringComparer.OrdinalIgnoreCase))).ToList();
+            var d = new Dictionary<string, string>();
+
+            if (coupangExtra != null && coupangExtra.Count > 0 && string.Join(" ", FitNaver(seed, words, 50)).Length < 20)
+                words = words.Concat(coupangExtra.Where(f => !words.Contains(f, StringComparer.OrdinalIgnoreCase))).ToList();
+
+            var usedShared = (set != null && !string.IsNullOrWhiteSpace(set.SharedFolder))
+                ? SharedNames.GetUsedNames(set.SharedFolder, job.Code)
+                : new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            Func<IEnumerable<string>, string> join = xs => string.Join(" ", xs);
+            const int CoupangLen = 50;
+
+            var p1 = set != null && set.Accounts != null ? set.Accounts.FirstOrDefault(a => a.Id == "1") : null;
+            var p2 = set != null && set.Accounts != null ? set.Accounts.FirstOrDefault(a => a.Id == "2") : null;
+            var p3 = set != null && set.Accounts != null ? set.Accounts.FirstOrDefault(a => a.Id == "3") : null;
+
+            // ── #1 계정: 기본 최적 순위 키워드 조합
+            var fit50_1 = FitNaver(seed, words, 50);
+            var r1 = fit50_1.Skip(1).ToList();
+            var r0_1 = arr(fit50_1, true).Where(w => !string.Equals(w, seed, StringComparison.OrdinalIgnoreCase)).ToList();
+            if (stat != null) r1 = r0_1;
+
+            string n1_1 = join(arr(fit50_1, true));
+            string n1_2 = join(arr(FitNaver(seed, new[] { seed }.Concat(PairSwap(r1)).Concat(words).ToList(), 50), false));
+            var fit100_1 = Fit(seed, cwords, CoupangLen);
+            string c1 = join(arr(fit100_1, true));
+
+            if (p1 != null)
+            {
+                n1_1 = ApplyStyle(p1.NameStyle, job, seed, n1_1, 50);
+                n1_2 = ApplyStyle(p1.NameStyle, job, seed, n1_2, 50);
+                c1 = ApplyStyle(p1.NameStyle, job, seed, c1, CoupangLen);
+            }
+            d["n1_1"] = n1_1;
+            d["n1_2"] = n1_2;
+            d["c1"] = c1;
+
+            var usedIn1 = new HashSet<string>(Regex.Split(n1_1 + " " + c1, @"\s+"), StringComparer.OrdinalIgnoreCase);
+
+            // ── #2 계정: 계정 1이 쓴 강한 조합을 피하고 대안 유효 키워드 우선 배치
+            var words2 = new List<string> { seed };
+            var altWords2 = words.Where(w => !string.Equals(w, seed, StringComparison.OrdinalIgnoreCase)).ToList();
+            var fresh2 = altWords2.Where(w => !usedIn1.Contains(w)).ToList();
+            var overlapped2 = altWords2.Where(w => usedIn1.Contains(w)).ToList();
+            words2.AddRange(fresh2);
+            words2.AddRange(r1.Where((w, i) => i % 2 == 1));
+            words2.AddRange(overlapped2);
+            words2.AddRange(words);
+            words2 = words2.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+
+            var fit50_2 = FitNaver(seed, words2, 50);
+            var r2 = fit50_2.Skip(1).ToList();
+            string n2_1 = join(arr(fit50_2, false));
+            string n2_2 = join(arr(FitNaver(seed, new[] { seed }.Concat(Enumerable.Reverse(r2)).Concat(words2).ToList(), 50), false));
+            var fit100_2 = Fit(seed, words2.Concat(cwords).Distinct(StringComparer.OrdinalIgnoreCase).ToList(), CoupangLen);
+            string c2 = join(arr(fit100_2, false));
+
+            if (p2 != null)
+            {
+                n2_1 = ApplyStyle(p2.NameStyle, job, seed, n2_1, 50);
+                n2_2 = ApplyStyle(p2.NameStyle, job, seed, n2_2, 50);
+                c2 = ApplyStyle(p2.NameStyle, job, seed, c2, CoupangLen);
+            }
+
+            if (n2_1 == n1_1 || usedShared.Contains(n2_1)) n2_1 = join(arr(FitNaver(seed, words2.Skip(1).Concat(new[] { seed }).ToList(), 50), false));
+            if (c2 == c1 || usedShared.Contains(c2)) c2 = join(arr(Fit(seed, PairSwap(r2).Concat(words2), CoupangLen), false));
+
+            d["n2_1"] = n2_1;
+            d["n2_2"] = n2_2;
+            d["c2"] = c2;
+
+            var usedIn2 = new HashSet<string>(Regex.Split(n2_1 + " " + c2, @"\s+"), StringComparer.OrdinalIgnoreCase);
+
+            // ── #3 계정: 계정 1, 2 조합 모두 피하고 회전 및 3차 단어군 조합
+            var words3 = new List<string> { seed };
+            var altWords3 = words.Where(w => !string.Equals(w, seed, StringComparison.OrdinalIgnoreCase)).ToList();
+            var fresh3 = altWords3.Where(w => !usedIn1.Contains(w) && !usedIn2.Contains(w)).ToList();
+            words3.AddRange(fresh3);
+            words3.AddRange(Rotate(altWords3, 2));
+            words3.AddRange(words);
+            words3 = words3.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+
+            var fit50_3 = FitNaver(seed, words3, 50);
+            var r3 = fit50_3.Skip(1).ToList();
+            string n3_1 = join(arr(fit50_3, false));
+            string n3_2 = join(arr(FitNaver(seed, new[] { seed }.Concat(Rotate(r3, 1)).Concat(words3).ToList(), 50), false));
+            var fit100_3 = Fit(seed, words3.Concat(cwords).Distinct(StringComparer.OrdinalIgnoreCase).ToList(), CoupangLen);
+            string c3 = join(arr(fit100_3, false));
+
+            if (p3 != null)
+            {
+                n3_1 = ApplyStyle(p3.NameStyle, job, seed, n3_1, 50);
+                n3_2 = ApplyStyle(p3.NameStyle, job, seed, n3_2, 50);
+                c3 = ApplyStyle(p3.NameStyle, job, seed, c3, CoupangLen);
+            }
+
+            if (n3_1 == n1_1 || n3_1 == n2_1 || usedShared.Contains(n3_1)) n3_1 = join(arr(FitNaver(seed, Rotate(words3, 3), 50), false));
+            if (c3 == c1 || c3 == c2 || usedShared.Contains(c3)) c3 = join(arr(Fit(seed, Rotate(r3, 2).Concat(words3), CoupangLen), false));
+
+            d["n3_1"] = n3_1;
+            d["n3_2"] = n3_2;
+            d["c3"] = c3;
+
+            return d;
+        }
+
         public static Dictionary<string, string> Build(string seed, List<string> words, List<string> filler = null, List<string> coupangExtra = null, Func<string, WordStat> stat = null)
         {
             Func<List<string>, bool, List<string>> arr = (ws, byRank) => stat == null ? ws : Arrange(ws, seed, stat, byRank);

@@ -192,8 +192,13 @@ async function job(code) {
   // 추가이미지 (등록할 때 올라가는 순서대로). 누르면 크게
   h += '<div class="card"><div class="name">추가이미지 ' + (j.extras || 0) + '장</div>' + (j.extras ? '<div class="xs" data-g="extra">' +
     Array.from({ length: j.extras }, (_, i) => '<figure><img src="' + imgUrl(j, 'extra', i + 1) + '" onclick="zoom(&quot;extra&quot;,' + i + ')" loading="lazy"><figcaption>' + (i + 1) + '</figcaption></figure>').join('') + '</div>' : '<p class="sub">아직 없습니다.</p>') + '</div>';
-  h += '<div class="card"><div class="name">상품명</div>';
-  for (const n of j.names) h += '<div class="item"><div class="sub">' + esc(n.label) + ' · ' + n.text.length + '자</div><div>' + esc(n.text) + '</div></div>';
+  h += '<div class="card"><div class="name">상품명 (사업자별 수정 가능)</div>';
+  for (const n of j.names) {
+    h += '<div class="item"><div class="row" style="justify-content:space-between"><span class="sub">' + esc(n.label) + '</span><span class="sub" id="len_' + esc(n.key) + '">' + n.text.length + '자</span></div>' +
+      '<input id="inp_' + esc(n.key) + '" value="' + esc(n.text) + '" oninput="document.getElementById(\'len_' + esc(n.key) + '\').innerText = this.value.length + \'자\'" style="width:100%;box-sizing:border-box;margin-top:4px;padding:6px;font-size:13px;border:1px solid var(--line);border-radius:4px;background:var(--card);color:var(--ink);">' +
+      '</div>';
+  }
+  h += '<div style="margin-top:8px"><button class="ghost" onclick="saveNames(\'' + esc(j.code) + '\')">수정한 상품명 저장</button></div></div>';
   h += '</div><div class="card"><div class="name">가격</div><div class="row">' + j.prices.map((p, i) => '<span class="tag">' + (i + 1) + '개 ' + won(p) + '</span>').join('') + '</div></div>';
   if (j.tags1 && j.tags1.length) {
     h += '<div class="card"><div class="name">쿠팡 #1 (질병·치료 우선) <span class="sub">' + j.tags1.length + '/20</span></div><div class="row" style="flex-wrap:wrap;gap:4px;">' + j.tags1.map(t => '<span class="tag">' + esc(t) + '</span>').join('') + '</div></div>';
@@ -209,7 +214,14 @@ async function job(code) {
   }
   if (j.problems.length) h += '<div class="card st-warn">' + j.problems.map(esc).join('<br>') + '</div>';
   if (j.results.length) h += '<div class="card sub">' + j.results.map(esc).join('<br>') + '</div>';
-  if (j.status === '검토 대기' && !j.problems.length) h += '<div class="card"><button id="regb" onclick="reg(\'' + esc(j.code) + '\')">' + esc(j.registerNote) + ' 등록</button></div>';
+  if (j.status === '검토 대기' && !j.problems.length) {
+    h += '<div class="card"><button id="regb" onclick="reg(\'' + esc(j.code) + '\', false)">' + esc(j.registerNote) + ' 등록</button></div>';
+  } else if (j.status === '일부 실패' || (j.results && j.results.some(r => r.startsWith('✖')))) {
+    h += '<div class="card row" style="gap:8px;">' +
+         '<button id="retryb" style="background:#b3261e;flex:1;" onclick="reg(\'' + esc(j.code) + '\', true)">실패한 계정만 재시도</button>' +
+         '<button id="regb" class="ghost" style="flex:1;" onclick="reg(\'' + esc(j.code) + '\', false)">전체 다시 등록</button>' +
+         '</div>';
+  }
   M.innerHTML = h;
 }
 function imgUrl(j, kind, n) { return '/api/image?code=' + encodeURIComponent(j.code) + '&kind=' + kind + '&n=' + n + '&v=' + (j.imgVer || 0) + '&key=' + encodeURIComponent(KEY); }
@@ -236,10 +248,32 @@ function zoom(g, i) {
     z.style.display = 'none';
   });
 })();
-async function reg(code) {
-  if (!confirm('[' + code + '] 를 등록할까요?')) return;
-  $('#regb').disabled = true; $('#regb').textContent = '등록 중...';
-  try { const r = await api('register', { code }); toast(r.message); } catch (e) { toast(e.message); }
+async function saveNames(code) {
+  const inputs = document.querySelectorAll('input[id^="inp_"]');
+  let q = 'code=' + encodeURIComponent(code);
+  inputs.forEach(inp => {
+    const key = inp.id.replace('inp_', '');
+    q += '&name_' + encodeURIComponent(key) + '=' + encodeURIComponent(inp.value.trim());
+  });
+  try {
+    const res = await api('save_names?' + q);
+    toast(res.message || '상품명을 저장했습니다.');
+  } catch (e) {
+    toast(e.message || '저장 실패');
+  }
+}
+
+async function reg(code, failedOnly) {
+  const msg = failedOnly ? '[' + code + '] 실패한 계정만 다시 등록할까요?' : '[' + code + '] 를 등록할까요?';
+  if (!confirm(msg)) return;
+  const b = failedOnly ? ($('#retryb') || $('#regb')) : $('#regb');
+  if (b) { b.disabled = true; b.textContent = failedOnly ? '재시도 중...' : '등록 중...'; }
+  try {
+    const r = await api('register', { code, failedOnly: failedOnly ? 'true' : 'false' });
+    toast(r.message);
+  } catch (e) {
+    toast(e.message);
+  }
   load();
 }
 
