@@ -492,7 +492,7 @@ namespace SalesTool
             if (current != null && current != job && current.Keywords.Count > 0 && current.Status != "대기" && current.Status != "진행 중") ReadBack(current);
             current = job;
             review.SuspendLayout();
-            review.Controls.Clear();
+            ClearDispose(review);
             nameBoxes.Clear();
             var flow = new FlowLayoutPanel { FlowDirection = FlowDirection.TopDown, WrapContents = false, AutoSize = true, Dock = DockStyle.Top };
             review.Controls.Add(flow);
@@ -502,7 +502,7 @@ namespace SalesTool
                 review.ResumeLayout(); return;
             }
 
-            var head = new Label { AutoSize = true, MaximumSize = new Size(900, 0), Font = new Font(Font, FontStyle.Bold), Margin = new Padding(3, 3, 3, 2),
+            var head = new Label { AutoSize = true, MaximumSize = new Size(900, 0), Font = BoldFont, Margin = new Padding(3, 3, 3, 2),
                 Text = "[" + job.Code + "] " + job.Title + "   (" + job.Status + ")" };
             flow.Controls.Add(head);
             var info = new List<string>();
@@ -512,7 +512,7 @@ namespace SalesTool
             if (!string.IsNullOrEmpty(job.Notice)) info.Add("조건: " + job.Notice);
             flow.Controls.Add(Note(string.Join("   |   ", info)));
             if (job.NaverCatName != null || job.CoupangCatName != null)
-                flow.Controls.Add(new Label { AutoSize = true, Font = new Font(Font, FontStyle.Bold), ForeColor = Color.FromArgb(30, 60, 120), Margin = new Padding(3, 2, 3, 2),
+                flow.Controls.Add(new Label { AutoSize = true, Font = BoldFont, ForeColor = Color.FromArgb(30, 60, 120), Margin = new Padding(3, 2, 3, 2),
                     Text = "등록 카테고리 → 네이버: " + (job.NaverCatName ?? "-") + "   |   쿠팡: " + (job.CoupangCatName ?? "-") });
             string n11;
             if (job.Names.TryGetValue("n1_1", out n11) && job.NameWords != null && job.NameWords.Count > 0)
@@ -545,7 +545,7 @@ namespace SalesTool
                 if (k.Excluded != null || k.OtherCategory) kwGrid.Rows[i].DefaultCellStyle.ForeColor = Color.Gray;
                 else if (k.TagReason != null) kwGrid.Rows[i].DefaultCellStyle.ForeColor = Color.DarkOrange;
                 else if (k.Small(set.MaxRatio)) kwGrid.Rows[i].DefaultCellStyle.ForeColor = Color.SeaGreen;
-                if (k.Rising && k.Excluded == null) { kwGrid.Rows[i].Cells[6].Style.ForeColor = Color.Crimson; kwGrid.Rows[i].Cells[6].Style.Font = new Font(kwGrid.Font, FontStyle.Bold); }
+                if (k.Rising && k.Excluded == null) { kwGrid.Rows[i].Cells[6].Style.ForeColor = Color.Crimson; kwGrid.Rows[i].Cells[6].Style.Font = BoldFont; }
             }
             kwGrid.CurrentCellDirtyStateChanged += (s, e) => { if (kwGrid.IsCurrentCellDirty) kwGrid.CommitEdit(DataGridViewDataErrorContexts.Commit); };
             kwGrid.CellValueChanged += (s, e) =>
@@ -597,7 +597,7 @@ namespace SalesTool
             {
                 string bInfo = string.IsNullOrWhiteSpace(plan.BusinessId) ? "" : " - " + plan.BusinessId;
                 string sInfo = string.IsNullOrWhiteSpace(plan.NameStyle) ? "기본" : plan.NameStyle;
-                flow.Controls.Add(new Label { Text = "■ #" + plan.Id + " 사업자" + bInfo + " (스타일: " + sInfo + ")", AutoSize = true, Font = new Font(Font.FontFamily, 9.5f, FontStyle.Bold), ForeColor = Color.FromArgb(40, 70, 140), Margin = new Padding(4, 6, 0, 2) });
+                flow.Controls.Add(new Label { Text = "■ #" + plan.Id + " 사업자" + bInfo + " (스타일: " + sInfo + ")", AutoSize = true, Font = Fnt(9.5f, FontStyle.Bold), ForeColor = Color.FromArgb(40, 70, 140), Margin = new Padding(4, 6, 0, 2) });
                 foreach (var key in NameKeys.Where(k => k.Substring(1, 1) == plan.Id))
                 {
                     if (key.StartsWith("n") && !plan.Counts(plan.NaverCounts).Contains(int.Parse(key.Substring(3)))) continue;
@@ -804,10 +804,10 @@ namespace SalesTool
             flow.Controls.Add(Row(Lbl("1개 용량", 60), volumeBox, healthBox, healthNote));
 
             // 등록
-            var regButton = new Button { Text = job.Status == "등록 완료" ? "다시 등록" : "등록", Width = 150, Height = 38, Font = new Font(Font.FontFamily, 11f, FontStyle.Bold), Margin = new Padding(3, 14, 3, 3) };
+            var regButton = new Button { Text = job.Status == "등록 완료" ? "다시 등록" : "등록", Width = 150, Height = 38, Font = Fnt(11f, FontStyle.Bold), Margin = new Padding(3, 14, 3, 3) };
             regButton.Click += async (s, e) => await RegisterJob(job, regButton, false);
 
-            var retryButton = new Button { Text = "실패한 계정만 재시도", Width = 180, Height = 38, Font = new Font(Font.FontFamily, 11f, FontStyle.Bold), BackColor = Color.FromArgb(255, 235, 235), ForeColor = Color.DarkRed, Margin = new Padding(3, 14, 3, 3) };
+            var retryButton = new Button { Text = "실패한 계정만 재시도", Width = 180, Height = 38, Font = Fnt(11f, FontStyle.Bold), BackColor = Color.FromArgb(255, 235, 235), ForeColor = Color.DarkRed, Margin = new Padding(3, 14, 3, 3) };
             retryButton.Visible = job.Status == "일부 실패" || (job.Results.Any(r => r.StartsWith("✖")) && job.Results.Any(r => r.StartsWith("✔")));
             retryButton.Click += async (s, e) => await RegisterJob(job, retryButton, true);
 
@@ -819,12 +819,12 @@ namespace SalesTool
             var failList = job.Results.Where(r => r.StartsWith("✖")).ToList();
             if (okList.Count > 0)
             {
-                var okLbl = new Label { Text = "등록 성공 (" + okList.Count + "건):\n" + string.Join("\n", okList), AutoSize = true, ForeColor = Color.DarkGreen, Font = new Font(Font.FontFamily, 9.5f), Margin = new Padding(4, 6, 0, 2) };
+                var okLbl = new Label { Text = "등록 성공 (" + okList.Count + "건):\n" + string.Join("\n", okList), AutoSize = true, ForeColor = Color.DarkGreen, Font = Fnt(9.5f, FontStyle.Regular), Margin = new Padding(4, 6, 0, 2) };
                 flow.Controls.Add(okLbl);
             }
             if (failList.Count > 0)
             {
-                var failLbl = new Label { Text = "등록 실패 (" + failList.Count + "건):\n" + string.Join("\n", failList), AutoSize = true, ForeColor = Color.Firebrick, Font = new Font(Font.FontFamily, 9.5f), Margin = new Padding(4, 4, 0, 2) };
+                var failLbl = new Label { Text = "등록 실패 (" + failList.Count + "건):\n" + string.Join("\n", failList), AutoSize = true, ForeColor = Color.Firebrick, Font = Fnt(9.5f, FontStyle.Regular), Margin = new Padding(4, 4, 0, 2) };
                 flow.Controls.Add(failLbl);
             }
             resultLabel = Note(job.Results.Count == 0 ? "" : "총 " + job.Results.Count + "건 (성공 " + okList.Count + "건, 실패 " + failList.Count + "건)");
@@ -963,7 +963,7 @@ namespace SalesTool
         // ── 설정
         void BuildSettingsTab()
         {
-            settingsTab.Controls.Clear();
+            ClearDispose(settingsTab);
             var flow = new FlowLayoutPanel { Dock = DockStyle.Fill, FlowDirection = FlowDirection.TopDown, WrapContents = false, AutoScroll = true, Padding = new Padding(12) };
             settingsTab.Controls.Add(flow);
             flow.Controls.Add(Section("계정별 등록 (#1 #2 #3 은 서로 다른 판매자 계정)"));
@@ -1086,7 +1086,7 @@ namespace SalesTool
             var mobOn = new CheckBox { Text = "휴대폰 앱 서버 켜기", Checked = set.MobileOn, AutoSize = true };
             mobOn.CheckedChanged += (s, e) => { set.MobileOn = mobOn.Checked; Store.Save(Store.SettingsPath, set); if (set.MobileOn) mobile.Start(set.MobilePort, () => set.MobileKey, OnMobile, StockLog); else mobile.Stop(); BuildSettingsTab(); };
             flow.Controls.Add(Row(mobOn, Note("상태: " + mobile.State)));
-            flow.Controls.Add(new Label { AutoSize = true, Font = new Font(Font.FontFamily, 13f, FontStyle.Bold), ForeColor = Color.FromArgb(30, 60, 120),
+            flow.Controls.Add(new Label { AutoSize = true, Font = Fnt(13f, FontStyle.Bold), ForeColor = Color.FromArgb(30, 60, 120),
                 Text = "연결 키: " + set.MobileKey + "\n앱에 넣을 주소: " + string.Join("  /  ", MobileServer.Addresses().Select(a => a.Split(' ')[0] + ":" + set.MobilePort)) });
             flow.Controls.Add(Note(string.Join("\n", MobileServer.Addresses().Select(a => "· " + a))));
             flow.Controls.Add(Note("앱 설치: 휴대폰이 같은 와이파이일 때 휴대폰 인터넷 창에서 http://" + (MobileServer.Addresses().Select(x => x.Split(' ')[0]).FirstOrDefault(x => !x.StartsWith("100.")) ?? "PC주소") + ":" + set.MobilePort + "/app.apk 를 열어 받고 설치 (출처를 알 수 없는 앱 허용 필요)"));
@@ -1786,10 +1786,10 @@ namespace SalesTool
             var sid = new TextBox { Width = 120, Text = cr.SellerId ?? "" };
             var spw = new TextBox { Width = 120, UseSystemPasswordChar = true };
 
-            p.Controls.Add(new Label { Text = "계정 #" + accId + " msgood4u 회원 로그인 (도매가 확인용)", AutoSize = true, Font = new Font(Font.FontFamily, 9.5f, FontStyle.Bold) });
+            p.Controls.Add(new Label { Text = "계정 #" + accId + " msgood4u 회원 로그인 (도매가 확인용)", AutoSize = true, Font = Fnt(9.5f, FontStyle.Bold) });
             p.Controls.Add(Row(Lbl("아이디", 70), mid, Lbl("비밀번호", 60), mpw, Note(cr.HasMember ? "(저장됨 · 변경 시만 입력)" : "")));
 
-            p.Controls.Add(new Label { Text = "계정 #" + accId + " msgood4u 셀러 로그인 (자동발주·송장 확인용)", AutoSize = true, Font = new Font(Font.FontFamily, 9.5f, FontStyle.Bold), Margin = new Padding(0, 10, 0, 0) });
+            p.Controls.Add(new Label { Text = "계정 #" + accId + " msgood4u 셀러 로그인 (자동발주·송장 확인용)", AutoSize = true, Font = Fnt(9.5f, FontStyle.Bold), Margin = new Padding(0, 10, 0, 0) });
             p.Controls.Add(Row(Lbl("판매자코드", 70), scode, Lbl("아이디", 50), sid, Lbl("비밀번호", 55), spw, Note(cr.HasSeller ? "(저장됨 · 변경 시만 입력)" : "")));
 
             p.Controls.Add(Note("비밀번호는 이 PC의 Windows 사용자 전용 암호화(DPAPI)로 저장됩니다."));
@@ -1836,13 +1836,13 @@ namespace SalesTool
         {
             if (InvokeRequired) { BeginInvoke(new Action(() => Notify(title, msg))); return; }
             var f = new Form { Text = "판매도구 - " + title, Width = 520, Height = 300, StartPosition = FormStartPosition.CenterScreen, TopMost = true };
-            f.Controls.Add(new TextBox { Dock = DockStyle.Fill, Multiline = true, ReadOnly = true, ScrollBars = ScrollBars.Vertical, Text = msg.Replace("\n", "\r\n"), Font = new Font(Font.FontFamily, 10f) });
+            f.Controls.Add(new TextBox { Dock = DockStyle.Fill, Multiline = true, ReadOnly = true, ScrollBars = ScrollBars.Vertical, Text = msg.Replace("\n", "\r\n"), Font = Fnt(10f, FontStyle.Regular) });
             f.Show(this);
         }
 
         void BuildStockTab()
         {
-            stockTab.Controls.Clear();
+            ClearDispose(stockTab);
             var top = new FlowLayoutPanel { Dock = DockStyle.Top, AutoSize = true, FlowDirection = FlowDirection.TopDown, WrapContents = false, Padding = new Padding(10) };
             stockLog = new TextBox { Dock = DockStyle.Fill, Multiline = true, ReadOnly = true, ScrollBars = ScrollBars.Vertical, Font = new Font("Consolas", 9f) };
             var auto = new CheckBox { Text = "6시간마다 자동으로 확인하고 바로 반영 (프로그램이 켜져 있을 때)", Checked = set.AutoStock, AutoSize = true };
@@ -1889,7 +1889,7 @@ namespace SalesTool
         // ── 학습 내역
         void BuildLearnTab()
         {
-            learnTab.Controls.Clear();
+            ClearDispose(learnTab);
             var lb = new ListBox { Dock = DockStyle.Fill, IntegralHeight = false, SelectionMode = SelectionMode.MultiExtended };
             var items = new List<Tuple<string, Action>>();
             foreach (var kv in learned.Excluded.OrderBy(k => k.Key)) { var k = kv.Key; items.Add(Tuple.Create("뺄 단어: " + kv.Key + " (" + kv.Value + "회)", (Action)(() => learned.Excluded.Remove(k)))); }
@@ -1921,10 +1921,37 @@ namespace SalesTool
         static string Won(long v) { return v.ToString("#,0") + "원"; }
         static Label Lbl(string t, int w = 0) { var l = new Label { Text = t, Margin = new Padding(3, 6, 4, 0) }; if (w > 0) l.Width = w; else l.AutoSize = true; return l; }
         static Label Note(string t, Color? c = null) { return new Label { Text = t, AutoSize = true, MaximumSize = new Size(900, 0), ForeColor = c ?? Color.DimGray, Margin = new Padding(3, 6, 4, 2) }; }
-        Label Section(string t) { return new Label { Text = t, AutoSize = true, Font = new Font(Font, FontStyle.Bold), ForeColor = Color.FromArgb(30, 60, 120), Margin = new Padding(3, 14, 3, 4) }; }
+        Label Section(string t) { return new Label { Text = t, AutoSize = true, Font = BoldFont, ForeColor = Color.FromArgb(30, 60, 120), Margin = new Padding(3, 14, 3, 4) }; }
         static FlowLayoutPanel Row(params Control[] cs) { var p = new FlowLayoutPanel { AutoSize = true, WrapContents = false, Margin = new Padding(0, 1, 0, 1) }; p.Controls.AddRange(cs); return p; }
         Button Btn(string t, Action a) { var b = new Button { Text = t, AutoSize = true, Height = 28, Margin = new Padding(2, 1, 4, 0) }; b.Click += (s, e) => a(); return b; }
         Button Btn(string t, Func<Task> a) { var b = new Button { Text = t, AutoSize = true, Height = 28, Margin = new Padding(2, 1, 4, 0) }; b.Click += async (s, e) => await a(); return b; }
+
+        // 화면을 다시 그릴 때 이전 컨트롤·이미지를 실제로 없앰 (Controls.Clear만 하면 창 핸들이 쌓여 프로그램이 꺼짐)
+        static void ClearDispose(Control parent)
+        {
+            var old = new List<Control>(); foreach (Control c in parent.Controls) old.Add(c);
+            parent.Controls.Clear();
+            // 버튼 클릭 중에 화면을 다시 그리는 경우가 있어, 지금 이벤트가 끝난 뒤에 없앰
+            Action kill = () => { foreach (var c in old) { try { DisposeTree(c); } catch { } } };
+            if (parent.IsHandleCreated && !parent.IsDisposed) parent.BeginInvoke(kill); else kill();
+        }
+        static void DisposeTree(Control c)
+        {
+            var kids = new List<Control>(); foreach (Control k in c.Controls) kids.Add(k);
+            foreach (var k in kids) DisposeTree(k);
+            var pb = c as PictureBox;
+            if (pb != null && pb.Image != null) { var im = pb.Image; pb.Image = null; im.Dispose(); }
+            c.Dispose();
+        }
+        // 굵은 글꼴은 한 번만 만들어 같이 씀 (클릭할 때마다 새로 만들면 GDI 핸들이 쌓임)
+        Font boldFont; Font BoldFont { get { return boldFont ?? (boldFont = new Font(Font, FontStyle.Bold)); } }
+        readonly Dictionary<string, Font> fontCache = new Dictionary<string, Font>();
+        Font Fnt(float size, FontStyle st)
+        {
+            string k = size + "|" + st; Font f;
+            if (!fontCache.TryGetValue(k, out f)) { f = new Font(Font.FontFamily, size, st); fontCache[k] = f; }
+            return f;
+        }
 
         static PictureBox Thumb(string file)
         {
@@ -1952,6 +1979,12 @@ namespace SalesTool
         {
             Application.EnableVisualStyles();
             Application.SetCompatibleTextRenderingDefault(false);
+            // 화면 오류가 나도 프로그램이 꺼지지 않게: 오류창 대신 error.log에 기록 (창을 만들 수 없는 상황에서도 안전)
+            Application.SetUnhandledExceptionMode(UnhandledExceptionMode.CatchException);
+            Application.ThreadException += (s, e) =>
+            {
+                try { File.AppendAllText(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "error.log"), DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss") + " " + e.Exception + Environment.NewLine + Environment.NewLine); } catch { }
+            };
             Application.Run(new MainForm());
         }
     }
