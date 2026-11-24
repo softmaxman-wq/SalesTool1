@@ -24,7 +24,7 @@ namespace SalesTool
         readonly Random rnd = new Random();
 
         // 상품명·키워드 규칙을 바꿀 때마다 올림 → 예전 규칙으로 만든 초안은 켤 때 자동으로 다시 만듦
-        public const int RulesVersion = 34;
+        public const int RulesVersion = 35;
 
         // 네이버 쇼핑을 실제로 열었을 때만 쉼 (저장된 결과를 다시 쓴 경우는 바로 다음으로)
         Task ShopPause() { return shop != null && shop.LastCached ? Task.FromResult(0) : Task.Delay(2000 + rnd.Next(1500)); }
@@ -1240,7 +1240,11 @@ namespace SalesTool
                     // 이 상품과 관계있는 말만: 시작 단어·상품 종류가 들어간 검색어(홍화씨유 효능),
                     // 또는 이 상품 상품명·상세에 나오고 이 카테고리에서 검색되는 키워드. 경쟁 상품명에만 있던 말(영진약품·독일·VIP·솔잎농축액)은 뺌
                     var relKeys = new[] { center, (job.Seed ?? "").Split(' ')[0], type, job.TypeSuffix }
-                        .Where(x => !string.IsNullOrWhiteSpace(x)).Select(Key).Where(x => x.Length >= 2).Distinct().ToList();
+                        .Where(x => !string.IsNullOrWhiteSpace(x)).Select(Key)
+                        // 제형·용기 말(식물성캡슐·캡슐·정·분말)은 상품 이름이 아님: '비타민d 식물성캡슐' 같은 다른 상품 검색어가 들어옴
+                        .Select(x => Regex.Replace(x, @"\d+$", ""))
+                        .Where(x => x.Length >= 2 && !Regex.IsMatch(x, @"^(식물성|연질|경질|장용성|하드|소프트)?(캡슐|정|환|분말|가루|스틱|포|젤리|액|시럽|타블렛|소프트겔)$"))
+                        .Distinct().ToList();
                     var rowByKey = new Dictionary<string, KwRow>();
                     foreach (var r in job.Keywords.Concat(job.Concern ?? new List<KwRow>()))
                         if (!string.IsNullOrWhiteSpace(r.Word) && !rowByKey.ContainsKey(Key(r.Word))) rowByKey[Key(r.Word)] = r;
