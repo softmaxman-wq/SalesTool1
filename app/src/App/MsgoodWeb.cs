@@ -396,6 +396,10 @@ namespace SalesTool
             job.Shipping = Convert.ToInt64(r["shipping"]);
             job.MainImageUrl = Convert.ToString(r["main"]);
             job.DetailUrls = ((IEnumerable)r["detail"]).Cast<object>().Select(Convert.ToString).Where(s => s.Length > 0).Distinct().ToList();
+            // 없어진 이미지(공통 배너 G24.jpg 404 등)가 하나 섞여 있으면 초안 전체가 실패하므로 열리는 이미지만 남김
+            var alive = await Task.Run(() => job.DetailUrls.Where(ImageAlive).ToList());
+            if (alive.Count < job.DetailUrls.Count) log("상세 이미지 " + (job.DetailUrls.Count - alive.Count) + "장이 사이트에 없어서 빼고 만듭니다.");
+            job.DetailUrls = alive;
             if (!login || job.Wholesale <= 0)
             {
                 if (requireLogin) throw new Exception("도매가를 읽지 못했습니다. msgood4u 로그인 상태를 확인하세요.");
@@ -415,6 +419,31 @@ namespace SalesTool
                 : "<img src=\"http://mskorea3118.cafe24.com/" + job.Code + ".jpg\">";
             var vm = Regex.Match(job.Name, @"(\d+)\s*(정|캡슐|포|g|ml|환)", RegexOptions.RightToLeft | RegexOptions.IgnoreCase);
             job.Volume = vm.Success ? vm.Value.Replace(" ", "") : "";
+        }
+
+        // 이미지 주소가 실제로 열리는지 (404·연결 실패면 false). HEAD를 막는 서버면 앞부분만 받아 봄
+        public static bool ImageAlive(string url)
+        {
+            for (int t = 0; t < 2; t++)
+            {
+                try
+                {
+                    var req = (System.Net.HttpWebRequest)System.Net.WebRequest.Create(url);
+                    req.Method = t == 0 ? "HEAD" : "GET";
+                    if (t == 1) req.AddRange(0, 1023);
+                    req.Timeout = 15000;
+                    req.UserAgent = "Mozilla/5.0";
+                    using (var res = (System.Net.HttpWebResponse)req.GetResponse())
+                        return (int)res.StatusCode < 400 && (res.ContentType ?? "").StartsWith("image", StringComparison.OrdinalIgnoreCase);
+                }
+                catch (System.Net.WebException ex)
+                {
+                    var hr = ex.Response as System.Net.HttpWebResponse;
+                    if (hr != null && (hr.StatusCode == System.Net.HttpStatusCode.NotFound || hr.StatusCode == System.Net.HttpStatusCode.Gone)) return false;
+                }
+                catch { }
+            }
+            return false;
         }
 
         public async Task Navigate(string url)

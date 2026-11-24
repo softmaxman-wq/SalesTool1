@@ -110,10 +110,15 @@ namespace RepImages
                     for (int i = 0; i < urls.Count; i++)
                     {
                         log("상세 이미지 받는 중... (" + (i + 1) + "/" + urls.Count + ")");
-                        using (var ms = new MemoryStream(wc.DownloadData(urls[i])))
-                        using (var im = Image.FromStream(ms))
-                            parts.Add(new Bitmap(im));
+                        try
+                        {
+                            using (var ms = new MemoryStream(wc.DownloadData(urls[i])))
+                            using (var im = Image.FromStream(ms))
+                                parts.Add(new Bitmap(im));
+                        }
+                        catch (WebException) { log("상세 이미지 " + (i + 1) + " 을 받지 못해 건너뜀"); }
                     }
+                if (parts.Count == 0) throw new Exception("상세 이미지를 하나도 받지 못했습니다.");
                 int w = 0, h = 0;
                 foreach (var p in parts) w = Math.Max(w, p.Width);
                 foreach (var p in parts) h += (int)Math.Round(p.Height * (w / (double)p.Width));

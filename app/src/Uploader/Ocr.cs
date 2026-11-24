@@ -53,7 +53,8 @@ $lines | Out-File $Out -Encoding utf8
                 {
                     log("상세 이미지 " + (n + 1) + "/" + urls.Count + " 받는 중...");
                     byte[] data;
-                    using (var wc = new WebClient()) data = wc.DownloadData(urls[n]);
+                    try { using (var wc = new WebClient()) data = wc.DownloadData(urls[n]); }
+                    catch (WebException) { log("상세 이미지 " + (n + 1) + " 을 받지 못해 건너뜀"); continue; }
                     using (var img = Image.FromStream(new MemoryStream(data)))
                     {
                         for (int y = 0; y < img.Height; y += Slice - Overlap)
