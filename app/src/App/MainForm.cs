@@ -63,6 +63,7 @@ namespace SalesTool
         SplitContainer leftSplit;   // 왼쪽: 위 = 대기열, 아래 = 작업 화면(네이버 쇼핑을 읽는 브라우저)
         bool workBig;
         WebView2 msgoodView, naverView;
+        DateTime lastCaptchaAlert = DateTime.MinValue;
         Panel review;
         Button continueButton;
         SplitContainer split;
@@ -330,7 +331,13 @@ namespace SalesTool
                     RefreshList();
                     try
                     {
-                        Action<string> step = m => { job.Step = m; Status("[" + job.Code + "] " + m); UpdateRow(job); };
+                        Action<string> step = m =>
+                        {
+                            job.Step = m; Status("[" + job.Code + "] " + m); UpdateRow(job);
+                            // 보안 확인이 뜨면 휴대폰으로 알림 (10분에 한 번만): 앱 [홈]에서 화면을 보고 바로 풀 수 있음
+                            if ((m ?? "").Contains("보안 확인") && (DateTime.Now - lastCaptchaAlert).TotalMinutes >= 10)
+                            { lastCaptchaAlert = DateTime.Now; Phone("네이버 보안 확인이 나왔습니다. 앱 [홈]에서 문제를 보고 답을 넣으면 이어서 진행합니다."); }
+                        };
                         string what = job.Pending;
                         if (what == "keywords") await pipeline.Refind(job, step);
                         else if (what == "tags") { await pipeline.MakeTags(job, step); job.DraftTags = new List<string>(job.CoupangTags); }
@@ -1228,7 +1235,8 @@ namespace SalesTool
                     var run = jobs.FirstOrDefault(j => j.Status == "진행 중");
                     List<string> logs; lock (recentLog) logs = recentLog.Skip(Math.Max(0, recentLog.Count - 30)).ToList();
                     return J(new { today = TodayCount(), limit = set.DailyLimit, waiting = jobs.Count(j => j.Status == "대기"), review = jobs.Count(j => j.Status == "검토 대기"),
-                        running = run == null ? null : new { code = run.Code, step = run.Step }, paused, autoOrder = set.AutoOrder, ordered = rec.Done.Count,
+                        running = run == null ? null : new { code = run.Code, step = run.Step }, paused,
+                        captcha = run != null && (run.Step ?? "").Contains("보안 확인"), autoOrder = set.AutoOrder, ordered = rec.Done.Count,
                         tracked = rec.Done.Values.Count(d => !string.IsNullOrEmpty(d.Tracking)), pending = rec.Pending.Count, lastShortage = rec.LastShortage, log = logs,
                         schedule = OrderScheduleText, nextOrder = NextOrderSlot() });
                 }
@@ -1259,6 +1267,64 @@ namespace SalesTool
                     string f = j == null ? null : Pipeline.ImagePath(j, kind, Math.Max(1, n));
                     if (f == null || !File.Exists(f)) return MobileResponse.Error(404, "이미지 없음");
                     return new MobileResponse { ContentType = f.EndsWith(".png", StringComparison.OrdinalIgnoreCase) ? "image/png" : "image/jpeg", Body = File.ReadAllBytes(f) };
+                }
+                // ── 네이버 보안 확인을 휴대폰에서 직접 풀기: 작업 화면 캡처를 보여 주고, 사용자가 넣은 답을 작업 화면에 입력 ──
+                case "/api/captcha":
+                {
+                    if (naverView == null || naverView.CoreWebView2 == null) return MobileResponse.Error(404, "작업 화면이 아직 없습니다");
+                    // 1순위: 문제 그림(영수증) 자체를 꺼냄 — 작업 화면이 작아 그림이 잘려도 온전하게 보임
+                    try
+                    {
+                        string pic = await naverView.CoreWebView2.ExecuteScriptAsync("(() => { const els = [...document.querySelectorAll('img, canvas')].filter(e => { const r = e.getBoundingClientRect(); return r.width >= 120 && r.height >= 80; });" +
+                            " if (!els.length) return ''; els.sort((a, b) => { const ra = a.getBoundingClientRect(), rb = b.getBoundingClientRect(); return rb.width * rb.height - ra.width * ra.height; });" +
+                            " const e = els[0]; e.scrollIntoView({ block: 'center' });" +
+                            " try { if (e.tagName === 'CANVAS') return e.toDataURL('image/png'); if (e.src && e.src.indexOf('data:image') === 0) return e.src;" +
+                            "   const c = document.createElement('canvas'); c.width = e.naturalWidth; c.height = e.naturalHeight; c.getContext('2d').drawImage(e, 0, 0); return c.toDataURL('image/png'); } catch (x) { return ''; } })()");
+                            pic = js.Deserialize<string>(pic) ?? "";
+                        var m = Regex.Match(pic, @"^data:image/(\w+);base64,(.+)$");
+                        if (m.Success && m.Groups[2].Value.Length > 2000)
+                            return new MobileResponse { ContentType = "image/" + m.Groups[1].Value, Body = Convert.FromBase64String(m.Groups[2].Value) };
+                    }
+                    catch { }
+                    // 2순위: 그림을 가운데로 내린 뒤 작업 화면을 캡처
+                    await Task.Delay(300);
+                    using (var ms = new MemoryStream())
+                    {
+                        await naverView.CoreWebView2.CapturePreviewAsync(Microsoft.Web.WebView2.Core.CoreWebView2CapturePreviewImageFormat.Png, ms);
+                        return new MobileResponse { ContentType = "image/png", Body = ms.ToArray() };
+                    }
+                }
+                case "/api/captcha_info":
+                {
+                    if (naverView == null || naverView.CoreWebView2 == null) return J(new { captcha = false, text = "" });
+                    string r = await naverView.CoreWebView2.ExecuteScriptAsync("(() => { const t = document.body ? document.body.innerText : ''; return { captcha: t.slice(0, 600).indexOf('보안 확인') >= 0, text: t.replace(/\\n{2,}/g, '\\n').slice(0, 400) }; })()");
+                    return MobileResponse.Json(r);
+                }
+                case "/api/captcha_answer":
+                {
+                    if (naverView == null || naverView.CoreWebView2 == null) return MobileResponse.Error(404, "작업 화면이 아직 없습니다");
+                    string ans = (arg("answer") ?? "").Trim();
+                    if (ans.Length == 0) return MobileResponse.Error(400, "답을 넣어 주세요");
+                    string r = await naverView.CoreWebView2.ExecuteScriptAsync("(() => { const A = " + js.Serialize(ans) + ";" +
+                        " const vis = e => !!(e.offsetWidth || e.offsetHeight || e.getClientRects().length);" +
+                        " const inp = [...document.querySelectorAll('input')].filter(i => vis(i) && /^(text|tel|number|search|)$/i.test(i.getAttribute('type') || ''));" +
+                        " if (!inp.length) return { ok: false, message: '작업 화면에 답 넣는 칸이 없습니다 (이미 풀렸을 수 있음)' };" +
+                        " const i = inp[0]; i.focus(); Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(i, A);" +
+                        " i.dispatchEvent(new Event('input', { bubbles: true })); i.dispatchEvent(new Event('change', { bubbles: true }));" +
+                        " const b = [...document.querySelectorAll('button, input[type=submit], input[type=button], a')].filter(vis).find(x => /^(확인|제출|입력)$/.test((x.innerText || x.value || '').trim()));" +
+                        " if (b) { b.click(); return { ok: true, message: '답을 넣고 확인을 눌렀습니다' }; }" +
+                        " if (i.form) { if (i.form.requestSubmit) i.form.requestSubmit(); else i.form.submit(); return { ok: true, message: '답을 넣고 제출했습니다' }; }" +
+                        " i.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', keyCode: 13, bubbles: true })); return { ok: true, message: '답을 넣고 Enter를 눌렀습니다' }; })()");
+                    return MobileResponse.Json(r);
+                }
+                case "/api/captcha_refresh":
+                {
+                    if (naverView == null || naverView.CoreWebView2 == null) return MobileResponse.Error(404, "작업 화면이 아직 없습니다");
+                    // 문제가 안 보이면 다른 문제로 (새로고침·다른 문제 버튼), 없으면 화면 다시 열기
+                    string r = await naverView.CoreWebView2.ExecuteScriptAsync("(() => { const vis = e => !!(e.offsetWidth || e.offsetHeight || e.getClientRects().length);" +
+                        " const b = [...document.querySelectorAll('button, a, [role=button]')].filter(vis).find(x => /새로고침|다른 문제|새로운 문제|refresh/i.test((x.innerText || x.getAttribute('aria-label') || x.title || '').trim()));" +
+                        " if (b) { b.click(); return { ok: true, message: '다른 문제로 바꿨습니다' }; } location.reload(); return { ok: true, message: '화면을 다시 열었습니다' }; })()");
+                    return MobileResponse.Json(r);
                 }
                 case "/api/add":
                     codesBox.Text = arg("codes"); AddCodes();

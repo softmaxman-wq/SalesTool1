@@ -157,12 +157,37 @@ async function home() {
     '<div class="stat"><b>' + s.review + '</b><span>검토 대기</span></div></div>' +
     (s.running ? '<p class="sub">진행 중: <b>' + esc(s.running.code) + '</b> ' + esc(s.running.step || '') + '</p>' : '') +
     (s.paused ? '<p class="st-warn">⏸ 멈춤 (네이버 보안 확인 등). PC에서 푼 뒤 <button class="ghost" onclick="act(\'continue\')">계속</button></p>' : '') + '</div>';
+  // 네이버 보안 확인: PC 작업 화면을 보여 주고, 여기서 넣은 답을 PC 화면에 입력
+  if (s.captcha) {
+    h += '<div class="card"><div class="name st-warn">🔒 네이버 보안 확인</div><p class="sub">아래 PC 작업 화면의 문제를 보고 답을 넣으세요. 그림을 누르면 크게 보입니다.</p>' +
+      '<img id="cap" src="/api/captcha?key=' + encodeURIComponent(KEY) + '&t=' + Date.now() + '" onclick="window.open(this.src)" style="width:100%;border:1px solid var(--line);border-radius:6px;background:#fff">' +
+      '<p class="sub" id="capq" style="white-space:pre-wrap"></p>' +
+      '<div class="row"><input id="capa" placeholder="답 입력" autocomplete="off" onkeydown="if(event.key===\'Enter\')capSend()"><button onclick="capSend()">보내기</button></div>' +
+      '<div class="row" style="margin-top:6px"><button class="ghost" onclick="capRefresh()">다른 문제</button><button class="ghost" onclick="load()">화면 새로 보기</button></div></div>';
+  }
   h += '<div class="card"><div class="name">상품번호 추가</div><p class="sub">여러 개는 띄어쓰기나 쉼표로</p><div class="row"><input id="codes" inputmode="numeric" placeholder="22021 21945"><button onclick="add()">대기열에 추가</button></div></div>';
   h += '<div class="card"><div class="row" style="justify-content:space-between"><div><div class="name">자동 발주</div><div class="sub">' + esc(s.schedule || '') + '</div>' + (s.autoOrder && s.nextOrder ? '<div class="sub">다음: ' + esc(s.nextOrder) + '</div>' : '') + '</div>' +
     '<button class="' + (s.autoOrder ? '' : 'ghost') + '" onclick="act(\'autoorder\',{on:' + (!s.autoOrder) + '})">' + (s.autoOrder ? '켜짐' : '꺼짐') + '</button></div>' +
     '<p class="sub">발주 ' + s.ordered + '건 · 송장 ' + s.tracked + '건 · 확인 필요 ' + s.pending + '건</p>' + (s.lastShortage ? '<p class="st-warn">' + esc(s.lastShortage) + '</p>' : '') + '</div>';
   h += '<div class="card"><div class="name">최근 기록</div><div class="log">' + esc((s.log || []).slice().reverse().join('\n')) + '</div></div>';
   M.innerHTML = h;
+  if (s.captcha) {
+    try {
+      const i = await api('captcha_info'); const q = $('#capq');
+      // 질문 줄만 (예: "가게 전화번호의 앞에서 2번째 숫자는 무엇입니까?")
+      const lines = (i.text || '').split('\n').map(x => x.trim()).filter(x => /\?|입니까|입력하세요/.test(x));
+      if (q) { q.innerText = lines.length ? lines.join('\n') : (i.text || '').trim(); q.style.fontWeight = lines.length ? '700' : ''; q.style.color = lines.length ? 'var(--ink)' : ''; }
+    } catch (e) {}
+  }
+}
+async function capSend() {
+  const v = ($('#capa').value || '').trim(); if (!v) return;
+  try { const r = await api('captcha_answer', { answer: v }); toast(r.message || '보냈습니다'); } catch (e) { toast(e.message); }
+  setTimeout(load, 3000);   // 풀렸는지(다음 단계로 넘어갔는지) 다시 확인
+}
+async function capRefresh() {
+  try { const r = await api('captcha_refresh', {}); toast(r.message || '완료'); } catch (e) { toast(e.message); }
+  setTimeout(load, 2500);
 }
 async function add() { const v = $('#codes').value.trim(); if (!v) return; const r = await api('add', { codes: v }); toast(r.message); load(); }
 async function act(what, body) { try { const r = await api(what, body || {}); toast(r.message || '완료'); } catch (e) { toast(e.message); } load(); }
