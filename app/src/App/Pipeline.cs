@@ -24,7 +24,7 @@ namespace SalesTool
         readonly Random rnd = new Random();
 
         // 상품명·키워드 규칙을 바꿀 때마다 올림 → 예전 규칙으로 만든 초안은 켤 때 자동으로 다시 만듦
-        public const int RulesVersion = 37;
+        public const int RulesVersion = 39;
 
         // 네이버 쇼핑을 실제로 열었을 때만 쉼 (저장된 결과를 다시 쓴 경우는 바로 다음으로)
         Task ShopPause() { return shop != null && shop.LastCached ? Task.FromResult(0) : Task.Delay(2000 + rnd.Next(1500)); }
@@ -486,6 +486,9 @@ namespace SalesTool
                 var bases = new List<string> { seed };
                 // 시작 단어에 제형이 붙어 있으면(홍화씨유 캡슐) 앞 단어(홍화씨유)로도 찾음 — 붙은 채로는 연관 키워드가 거의 안 나옴
                 if (seed.Contains(" ")) { string head0 = seed.Split(' ')[0]; if (head0.Length >= 2) bases.Add(head0); }
+                // 유산균 상품은 '유산균'으로도 (시작 단어가 슈퍼프로바이오틱스처럼 좁으면 연관 키워드가 적음)
+                string catWord = CategoryCoreWord(job);
+                if (ForcedCatPath(job) != null && catWord != null && !bases.Any(x => Key(x) == Key(catWord))) bases.Add(catWord);
                 if (job.TypeSuffix != null && !string.Equals(job.TypeSuffix, seed, StringComparison.OrdinalIgnoreCase) && Key(seed).Contains(Key(job.TypeSuffix))) bases.Add(job.TypeSuffix);
                 var all = new Dictionary<string, long>(StringComparer.OrdinalIgnoreCase);
                 foreach (var b in bases)
@@ -1256,6 +1259,13 @@ namespace SalesTool
                         string k = Key(w);
                         if (k.Length < 2 || otherBrand(w)) return false;
                         if (imported && Regex.IsMatch(k, "국산|국내산")) return false;
+                        // 원산지 말만 있는 검색어(스페인산·국산)는 사람들이 찾는 말이 아님
+                        if (Regex.IsMatch(k, @"^(국|국내|수입|외국|스페인|미국|중국|캐나다|호주|뉴질랜드|독일|프랑스|이탈리아|일본|인도|칠레|페루|베트남|태국|덴마크|노르웨이|영국|네덜란드)산$")) return false;
+                        // '프로' 같은 짧은 조각은 이 상품 키워드 표에 있는 말일 때만
+                        if (k.Length < 3 && !relKeys.Contains(k)) return false;
+                        // 다른 종류의 상품 검색어 (영양제인데 고양이 츄르·치약·염색약·음료·스프레이 …): 이 상품 이름·상세에 그 말이 없으면 뺌
+                        var otherType = Regex.Match(k, "고양이|강아지|반려|애견|애묘|츄르|사료|펫|치약|가글|염색약|샴푸|린스|스프레이|화장품|크림|로션|팩|음료|요구르트|요거트|우유|아이스크림|과자|사탕|젤리|철분|비타민|칼슘|마그네슘|오메가|루테인|콜라겐|프로틴|단백질");
+                        if (otherType.Success && !Key(job.Name).Contains(otherType.Value) && Naming.Occ(job.OcrText, otherType.Value) < 2) return false;
                         if (relKeys.Any(x => k.Contains(x))) return true;
                         KwRow row;
                         return rowByKey.TryGetValue(k, out row) && row.Excluded == null && !row.OtherCategory
