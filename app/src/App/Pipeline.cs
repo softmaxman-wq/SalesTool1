@@ -24,7 +24,7 @@ namespace SalesTool
         readonly Random rnd = new Random();
 
         // 상품명·키워드 규칙을 바꿀 때마다 올림 → 예전 규칙으로 만든 초안은 켤 때 자동으로 다시 만듦
-        public const int RulesVersion = 30;
+        public const int RulesVersion = 31;
 
         // 네이버 쇼핑을 실제로 열었을 때만 쉼 (저장된 결과를 다시 쓴 경우는 바로 다음으로)
         Task ShopPause() { return shop != null && shop.LastCached ? Task.FromResult(0) : Task.Delay(2000 + rnd.Next(1500)); }
@@ -1235,9 +1235,27 @@ namespace SalesTool
                     }
                     if (!string.IsNullOrWhiteSpace(job.Seed)) nameTooSafe.Add(job.Seed);
 
+                    // 이 상품과 관계있는 말만: 시작 단어·상품 종류가 들어간 검색어(홍화씨유 효능),
+                    // 또는 이 상품 상품명·상세에 나오고 이 카테고리에서 검색되는 키워드. 경쟁 상품명에만 있던 말(영진약품·독일·VIP·솔잎농축액)은 뺌
+                    var relKeys = new[] { center, (job.Seed ?? "").Split(' ')[0], type, job.TypeSuffix }
+                        .Where(x => !string.IsNullOrWhiteSpace(x)).Select(Key).Where(x => x.Length >= 2).Distinct().ToList();
+                    var rowByKey = new Dictionary<string, KwRow>();
+                    foreach (var r in job.Keywords.Concat(job.Concern ?? new List<KwRow>()))
+                        if (!string.IsNullOrWhiteSpace(r.Word) && !rowByKey.ContainsKey(Key(r.Word))) rowByKey[Key(r.Word)] = r;
+                    Func<string, bool> relevant = w =>
+                    {
+                        string k = Key(w);
+                        if (k.Length < 2 || otherBrand(w)) return false;
+                        if (relKeys.Any(x => k.Contains(x))) return true;
+                        KwRow row;
+                        return rowByKey.TryGetValue(k, out row) && row.Excluded == null && !row.OtherCategory
+                            && (row.InName || row.Typo || row.Core || ((row.Mentioned || row.Function) && (!row.CatChecked || row.CatShare >= 0.5)));
+                    };
+
                     // 1) 선을 넘나드는 연관/효능/고민 보충 풀: 월 검색수 > 30 내림차순, 상품명에 들어갈 만한 안전한 기본 단어는 제외!
                     var semiSafePool = cand.Select(x => x.Key).Concat(tags).Concat(extra)
                         .Where(w => !string.IsNullOrWhiteSpace(w) && w.Length >= 2 && w.Length <= 20)
+                        .Where(relevant)
                         .Where(w => volMap.ContainsKey(w) && volMap[w] > 30)
                         .Where(w => !nameTooSafe.Contains(w)) // 상품명 너무 안전한 단어 제외!
                         .Distinct(StringComparer.OrdinalIgnoreCase)
@@ -1247,6 +1265,7 @@ namespace SalesTool
                     // 2) 무조건 20개 꽉 채우기용 긴급 보충 풀 (월간검색량 > 30 내림차순)
                     var emergencyPool = cand.Select(x => x.Key).Concat(tags).Concat(extra)
                         .Where(w => !string.IsNullOrWhiteSpace(w) && w.Length >= 2 && w.Length <= 20)
+                        .Where(relevant)
                         .Where(w => volMap.ContainsKey(w) && volMap[w] > 30)
                         .Distinct(StringComparer.OrdinalIgnoreCase)
                         .OrderByDescending(w => volMap[w])
@@ -1255,6 +1274,7 @@ namespace SalesTool
                     // 3) 최종 비상 풀: 혹시 검색량 30 초과 키워드가 희귀한 경우에도 무조건 20개를 100% 채우는 전체 후보군
                     var allFallback = cand.Select(x => x.Key).Concat(tags).Concat(extra)
                         .Where(w => !string.IsNullOrWhiteSpace(w) && w.Length >= 2 && w.Length <= 20)
+                        .Where(relevant)
                         .Distinct(StringComparer.OrdinalIgnoreCase)
                         .OrderByDescending(w => volMap.ContainsKey(w) ? volMap[w] : 0)
                         .ToList();
@@ -1262,6 +1282,7 @@ namespace SalesTool
                     // ── [쿠팡 #1 샵]: 질병 및 치료제 위험 키워드 전자동 즉시 주입 (월간검색량 > 30 필수, 검색량 내림차순)
                     var diseaseWords = cand.Select(x => x.Key)
                         .Where(w => w.Length >= 2 && w.Length <= 20 && volMap.ContainsKey(w) && volMap[w] > 30)
+                        .Where(relevant)   // 홍화씨유 상품에 '다이어트'처럼 상품과 관계없는 말은 빼고
                         .Where(w => {
                             string rk = riskWhy(w);
                             return rk == "질병·치료" || rk == "의약품" || Regex.IsMatch(w, @"(치료|효능|효과|약|처방|예방|염|증상|통증|개선|골다공증|관절염|골절|혈압|혈행|혈관|다이어트|당뇨|피부|비염|탈모)");
@@ -1308,6 +1329,7 @@ namespace SalesTool
                     // ── [쿠팡 #3 샵]: 증가배수(트렌드 급상승) 키워드 전자동 즉시 주입 (Growth▲ 내림차순 정렬!)
                     var risingWords = job.Keywords.Concat(job.Concern ?? new List<KwRow>())
                         .Where(r => r.Growth >= 1.2 || r.Rising)
+                        .Where(r => relevant(r.Word))
                         .Where(r => !string.IsNullOrWhiteSpace(r.Word) && r.Word.Length >= 2 && r.Word.Length <= 20 && volMap.ContainsKey(r.Word) && volMap[r.Word] > 30)
                         .OrderByDescending(r => r.Growth)
                         .ThenByDescending(r => volMap.ContainsKey(r.Word) ? volMap[r.Word] : 0)
