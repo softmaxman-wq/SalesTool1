@@ -24,7 +24,7 @@ namespace SalesTool
         readonly Random rnd = new Random();
 
         // 상품명·키워드 규칙을 바꿀 때마다 올림 → 예전 규칙으로 만든 초안은 켤 때 자동으로 다시 만듦
-        public const int RulesVersion = 31;
+        public const int RulesVersion = 32;
 
         // 네이버 쇼핑을 실제로 열었을 때만 쉼 (저장된 결과를 다시 쓴 경우는 바로 다음으로)
         Task ShopPause() { return shop != null && shop.LastCached ? Task.FromResult(0) : Task.Delay(2000 + rnd.Next(1500)); }
@@ -1198,11 +1198,11 @@ namespace SalesTool
                     foreach (var r in job.Keywords.Concat(job.Related).Concat(job.Concern ?? new List<KwRow>()))
                     {
                         if (r.Volume > 30 && !string.IsNullOrWhiteSpace(r.Word))
-                            volMap[r.Word] = Math.Max(volMap.ContainsKey(r.Word) ? volMap[r.Word] : 0, r.Volume);
+                            volMap[SearchAd.Clean(r.Word)] = Math.Max(volMap.ContainsKey(SearchAd.Clean(r.Word)) ? volMap[SearchAd.Clean(r.Word)] : 0, r.Volume);
                     }
 
                     // 추가 검색어 후보들의 검색량도 조회하여 월간검색량 30 초과 확보
-                    var unkWords = cand.Select(x => x.Key).Where(w => !volMap.ContainsKey(w) && w.Length >= 2 && w.Length <= 20).Distinct().Take(80).ToList();
+                    var unkWords = cand.Select(x => x.Key).Concat(tags).Concat(extra).Where(w => !volMap.ContainsKey(SearchAd.Clean(w)) && w.Length >= 2 && w.Length <= 20).Distinct(StringComparer.OrdinalIgnoreCase).Take(120).ToList();
                     if (unkWords.Count > 0)
                     {
                         try
@@ -1211,7 +1211,7 @@ namespace SalesTool
                             if (keys.Ready)
                             {
                                 var uv = await Task.Run(() => new SearchAd(keys).Volumes(unkWords, (d, n) => { }, () => false));
-                                foreach (var kv in uv) if (kv.Value.Total > 30) volMap[kv.Key] = kv.Value.Total;
+                                foreach (var kv in uv) if (kv.Value.Total > 30) volMap[SearchAd.Clean(kv.Key)] = kv.Value.Total;
                             }
                         }
                         catch { }
@@ -1256,19 +1256,19 @@ namespace SalesTool
                     var semiSafePool = cand.Select(x => x.Key).Concat(tags).Concat(extra)
                         .Where(w => !string.IsNullOrWhiteSpace(w) && w.Length >= 2 && w.Length <= 20)
                         .Where(relevant)
-                        .Where(w => volMap.ContainsKey(w) && volMap[w] > 30)
+                        .Where(w => volMap.ContainsKey(SearchAd.Clean(w)) && volMap[SearchAd.Clean(w)] > 30)
                         .Where(w => !nameTooSafe.Contains(w)) // 상품명 너무 안전한 단어 제외!
                         .Distinct(StringComparer.OrdinalIgnoreCase)
-                        .OrderByDescending(w => volMap[w])
+                        .OrderByDescending(w => volMap[SearchAd.Clean(w)])
                         .ToList();
 
                     // 2) 무조건 20개 꽉 채우기용 긴급 보충 풀 (월간검색량 > 30 내림차순)
                     var emergencyPool = cand.Select(x => x.Key).Concat(tags).Concat(extra)
                         .Where(w => !string.IsNullOrWhiteSpace(w) && w.Length >= 2 && w.Length <= 20)
                         .Where(relevant)
-                        .Where(w => volMap.ContainsKey(w) && volMap[w] > 30)
+                        .Where(w => volMap.ContainsKey(SearchAd.Clean(w)) && volMap[SearchAd.Clean(w)] > 30)
                         .Distinct(StringComparer.OrdinalIgnoreCase)
-                        .OrderByDescending(w => volMap[w])
+                        .OrderByDescending(w => volMap[SearchAd.Clean(w)])
                         .ToList();
 
                     // 3) 최종 비상 풀: 혹시 검색량 30 초과 키워드가 희귀한 경우에도 무조건 20개를 100% 채우는 전체 후보군
@@ -1276,19 +1276,19 @@ namespace SalesTool
                         .Where(w => !string.IsNullOrWhiteSpace(w) && w.Length >= 2 && w.Length <= 20)
                         .Where(relevant)
                         .Distinct(StringComparer.OrdinalIgnoreCase)
-                        .OrderByDescending(w => volMap.ContainsKey(w) ? volMap[w] : 0)
+                        .OrderByDescending(w => volMap.ContainsKey(SearchAd.Clean(w)) ? volMap[SearchAd.Clean(w)] : 0)
                         .ToList();
 
                     // ── [쿠팡 #1 샵]: 질병 및 치료제 위험 키워드 전자동 즉시 주입 (월간검색량 > 30 필수, 검색량 내림차순)
                     var diseaseWords = cand.Select(x => x.Key)
-                        .Where(w => w.Length >= 2 && w.Length <= 20 && volMap.ContainsKey(w) && volMap[w] > 30)
+                        .Where(w => w.Length >= 2 && w.Length <= 20 && volMap.ContainsKey(SearchAd.Clean(w)) && volMap[SearchAd.Clean(w)] > 30)
                         .Where(relevant)   // 홍화씨유 상품에 '다이어트'처럼 상품과 관계없는 말은 빼고
                         .Where(w => {
                             string rk = riskWhy(w);
                             return rk == "질병·치료" || rk == "의약품" || Regex.IsMatch(w, @"(치료|효능|효과|약|처방|예방|염|증상|통증|개선|골다공증|관절염|골절|혈압|혈행|혈관|다이어트|당뇨|피부|비염|탈모)");
                         })
                         .Distinct(StringComparer.OrdinalIgnoreCase)
-                        .OrderByDescending(w => volMap[w])
+                        .OrderByDescending(w => volMap[SearchAd.Clean(w)])
                         .ToList();
                     job.DiseaseWords = diseaseWords;
 
@@ -1300,18 +1300,17 @@ namespace SalesTool
                     foreach (var w in semiSafePool) { if (tags1.Count >= 20) break; if (seen1.Add(w)) tags1.Add(w); }
                     // 3순위: 무조건 20개 꽉 채우기 (emergencyPool)
                     foreach (var w in emergencyPool) { if (tags1.Count >= 20) break; if (seen1.Add(w)) tags1.Add(w); }
-                    // 4순위: 20개 최종 완결 (allFallback)
-                    foreach (var w in allFallback) { if (tags1.Count >= 20) break; if (seen1.Add(w)) tags1.Add(w); }
+                    // (검색량을 확인하지 못한 말로 20개를 억지로 채우지 않음)
 
                     // ── [쿠팡 #2 샵]: 인물 키워드 전자동 즉시 주입 (월간검색량 > 30 필수, 검색량 내림차순)
                     var personWords = cand.Select(x => x.Key)
-                        .Where(w => w.Length >= 2 && w.Length <= 20 && volMap.ContainsKey(w) && volMap[w] > 30)
+                        .Where(w => w.Length >= 2 && w.Length <= 20 && volMap.ContainsKey(SearchAd.Clean(w)) && volMap[SearchAd.Clean(w)] > 30)
                         .Where(w => {
                             string rk = riskWhy(w);
                             return rk == "인물" || personK.Any(p => Key(w).Contains(p)) || Regex.IsMatch(w, @"(박사|교수|의사|약사|원장|선생|명의|연구소|대표|선수)");
                         })
                         .Distinct(StringComparer.OrdinalIgnoreCase)
-                        .OrderByDescending(w => volMap[w])
+                        .OrderByDescending(w => volMap[SearchAd.Clean(w)])
                         .ToList();
                     job.PersonWords = personWords;
 
@@ -1320,19 +1319,18 @@ namespace SalesTool
                     // 1순위: 인물 키워드 우선 꽉 채우기
                     foreach (var w in personWords) { if (tags2.Count >= 20) break; if (seen2.Add(w)) tags2.Add(w); }
                     // 2순위: 20개 미달 시 월검색수 > 30 내림차순 보충 (상품명 안전단어 제외, 선을 넘나드는 연관/효능 키워드)
-                    foreach (var w in semiSafePool) { if (tags2.Count >= 20) break; if (seen2.Add(w)) tags2.Add(w); }
+                    foreach (var w in semiSafePool.Where(x => !tags1.Contains(x, StringComparer.OrdinalIgnoreCase)).Concat(semiSafePool)) { if (tags2.Count >= 20) break; if (seen2.Add(w)) tags2.Add(w); }
                     // 3순위: 무조건 20개 꽉 채우기 (emergencyPool)
                     foreach (var w in emergencyPool) { if (tags2.Count >= 20) break; if (seen2.Add(w)) tags2.Add(w); }
-                    // 4순위: 20개 최종 완결 (allFallback)
-                    foreach (var w in allFallback) { if (tags2.Count >= 20) break; if (seen2.Add(w)) tags2.Add(w); }
+                    // (검색량을 확인하지 못한 말로 20개를 억지로 채우지 않음)
 
                     // ── [쿠팡 #3 샵]: 증가배수(트렌드 급상승) 키워드 전자동 즉시 주입 (Growth▲ 내림차순 정렬!)
                     var risingWords = job.Keywords.Concat(job.Concern ?? new List<KwRow>())
                         .Where(r => r.Growth >= 1.2 || r.Rising)
                         .Where(r => relevant(r.Word))
-                        .Where(r => !string.IsNullOrWhiteSpace(r.Word) && r.Word.Length >= 2 && r.Word.Length <= 20 && volMap.ContainsKey(r.Word) && volMap[r.Word] > 30)
+                        .Where(r => !string.IsNullOrWhiteSpace(r.Word) && r.Word.Length >= 2 && r.Word.Length <= 20 && volMap.ContainsKey(SearchAd.Clean(r.Word)) && volMap[SearchAd.Clean(r.Word)] > 30)
                         .OrderByDescending(r => r.Growth)
-                        .ThenByDescending(r => volMap.ContainsKey(r.Word) ? volMap[r.Word] : 0)
+                        .ThenByDescending(r => volMap.ContainsKey(SearchAd.Clean(r.Word)) ? volMap[SearchAd.Clean(r.Word)] : 0)
                         .Select(r => r.Word)
                         .Distinct(StringComparer.OrdinalIgnoreCase)
                         .ToList();
@@ -1343,11 +1341,10 @@ namespace SalesTool
                     // 1순위: 최근 급상승 키워드 우선 꽉 채우기
                     foreach (var w in risingWords) { if (tags3.Count >= 20) break; if (seen3.Add(w)) tags3.Add(w); }
                     // 2순위: 20개 미달 시 월검색수 > 30 내림차순 보충 (상품명 안전단어 제외, 선을 넘나드는 연관/효능 키워드)
-                    foreach (var w in semiSafePool) { if (tags3.Count >= 20) break; if (seen3.Add(w)) tags3.Add(w); }
+                    foreach (var w in semiSafePool.Where(x => !tags1.Contains(x, StringComparer.OrdinalIgnoreCase) && !tags2.Contains(x, StringComparer.OrdinalIgnoreCase)).Concat(semiSafePool)) { if (tags3.Count >= 20) break; if (seen3.Add(w)) tags3.Add(w); }
                     // 3순위: 무조건 20개 꽉 채우기 (emergencyPool)
                     foreach (var w in emergencyPool) { if (tags3.Count >= 20) break; if (seen3.Add(w)) tags3.Add(w); }
-                    // 4순위: 20개 최종 완결 (allFallback)
-                    foreach (var w in allFallback) { if (tags3.Count >= 20) break; if (seen3.Add(w)) tags3.Add(w); }
+                    // (검색량을 확인하지 못한 말로 20개를 억지로 채우지 않음)
 
                     // Job 객체에 3개 쿠팡 샵 태그 각각 저장
                     job.CoupangTags1 = tags1;

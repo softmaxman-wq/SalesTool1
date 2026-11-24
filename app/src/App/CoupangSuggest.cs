@@ -48,16 +48,7 @@ namespace SalesTool
             if (string.IsNullOrEmpty(q)) return list;
 
             if (ValidateKeyword(q)) list.Add(q);
-            string[] suffix = { "추천", "효능", "효과", "영양제", "정품", "1위", "식약처인증", "고르는법", "먹는법" };
-            foreach (var s in suffix)
-            {
-                if (!q.EndsWith(s))
-                {
-                    string cand = (q + " " + s).Trim();
-                    if (ValidateKeyword(cand) && !list.Contains(cand))
-                        list.Add(cand);
-                }
-            }
+            // 자동완성을 못 읽었을 때 '○○ 추천·먹는법' 같은 검색어를 지어내지 않음 (실제로 검색되는지 모름)
             return list;
         }
 
