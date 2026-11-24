@@ -24,7 +24,7 @@ namespace SalesTool
         readonly Random rnd = new Random();
 
         // 상품명·키워드 규칙을 바꿀 때마다 올림 → 예전 규칙으로 만든 초안은 켤 때 자동으로 다시 만듦
-        public const int RulesVersion = 35;
+        public const int RulesVersion = 37;
 
         // 네이버 쇼핑을 실제로 열었을 때만 쉼 (저장된 결과를 다시 쓴 경우는 바로 다음으로)
         Task ShopPause() { return shop != null && shop.LastCached ? Task.FromResult(0) : Task.Delay(2000 + rnd.Next(1500)); }
@@ -1248,10 +1248,14 @@ namespace SalesTool
                     var rowByKey = new Dictionary<string, KwRow>();
                     foreach (var r in job.Keywords.Concat(job.Concern ?? new List<KwRow>()))
                         if (!string.IsNullOrWhiteSpace(r.Word) && !rowByKey.ContainsKey(Key(r.Word))) rowByKey[Key(r.Word)] = r;
+                    // 수입 원료 상품(스페인산 등)에 '국산·국내산' 검색어를 넣으면 원산지를 잘못 알리게 됨
+                    bool imported = Regex.IsMatch((job.Name ?? "") + " " + (job.OcrText ?? ""), @"(스페인|미국|중국|캐나다|호주|뉴질랜드|독일|프랑스|이탈리아|일본|인도|칠레|페루|베트남|태국|덴마크|노르웨이|영국|네덜란드)\s*산")
+                                    && !Regex.IsMatch(job.Name ?? "", "국산|국내산");
                     Func<string, bool> relevant = w =>
                     {
                         string k = Key(w);
                         if (k.Length < 2 || otherBrand(w)) return false;
+                        if (imported && Regex.IsMatch(k, "국산|국내산")) return false;
                         if (relKeys.Any(x => k.Contains(x))) return true;
                         KwRow row;
                         return rowByKey.TryGetValue(k, out row) && row.Excluded == null && !row.OtherCategory
@@ -1301,9 +1305,16 @@ namespace SalesTool
                     // 5) 20개가 안 될 때만: 쿠팡 자동완성에 실제로 나온 검색어 (네이버 검색량 기록은 없어도 쿠팡에서 사람들이 치는 말)
                     //    이 상품 이름이 들어간 말만, 검색에 쓴 질의어(○○ 치료 등) 자체와 위험 표현은 빼고
                     var askedQ = new HashSet<string>(riskQueries.Select(Key));
-                    var autoPool = raw.Where(s => !string.IsNullOrWhiteSpace(s) && s.Length >= 2 && s.Length <= 20)
+                    // 시작 단어에 제형이 붙어 있으면(홍화씨유 캡슐) 앞 단어(홍화씨유)로도 쿠팡 자동완성을 받아 둠
+                    var autoRaw = new List<string>(raw);
+                    string seedHead = (job.Seed ?? "").Split(' ')[0];
+                    if (seedHead.Length >= 2 && !askedQ.Contains(Key(seedHead)))
+                    {
+                        try { autoRaw.AddRange(await new CoupangSuggest(naverView).Raw(new[] { seedHead })); } catch { }
+                    }
+                    var autoPool = autoRaw.Where(s => !string.IsNullOrWhiteSpace(s) && s.Length >= 2 && s.Length <= 20)
                         .Where(s => !askedQ.Contains(Key(s)) || Key(s) == Key(center))
-                        .Where(s => relKeys.Any(x => Key(s).Contains(x)) && !otherBrand(s) && riskWhy(s) == null)
+                        .Where(s => relKeys.Any(x => Key(s).Contains(x)) && relevant(s) && riskWhy(s) == null)
                         .Distinct(StringComparer.OrdinalIgnoreCase).ToList();
 
                     var tags1 = new List<string>();

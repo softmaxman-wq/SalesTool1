@@ -101,6 +101,7 @@ namespace SalesTool
                 var cookies = await naverView.CoreWebView2.CookieManager.GetCookiesAsync("https://nid.naver.com");
                 if (cookies.Any(c => c.Name == "NID_AUT" && !string.IsNullOrEmpty(c.Value)))
                 {
+                    UpdateNaverLoginButton(true);
                     Status("네이버에 이미 로그인돼 있습니다.");
                     MessageBox.Show(this, "네이버에 이미 로그인돼 있습니다.", Text, MessageBoxButtons.OK, MessageBoxIcon.Information);
                     return;
@@ -109,6 +110,12 @@ namespace SalesTool
                 naverView.CoreWebView2.Navigate("https://nid.naver.com/nidlogin.login?url=" + Uri.EscapeDataString("https://shopping.naver.com/"));
                 Status("왼쪽 아래 작업 화면에서 네이버에 로그인하세요. 로그인 상태는 저장됩니다. 다 되면 [작게]를 누르세요.");
             });
+            naverLoginBtn = naverLogin;
+            naverLogin.Font = new Font(naverLogin.Font, FontStyle.Bold);
+            // 로그인 상태를 버튼에 표시 (1분마다 확인)
+            var naverLoginTimer = new System.Windows.Forms.Timer { Interval = 60000 };
+            naverLoginTimer.Tick += async (s, e) => await RefreshNaverLoginButton();
+            naverLoginTimer.Start();
             var msgoodLogin = Btn("msgood4u 로그인", () =>
             {
                 if (msgoodView.CoreWebView2 == null) return;
@@ -1187,6 +1194,55 @@ namespace SalesTool
             return new string(b.Select(x => chars[x % chars.Length]).ToArray());
         }
 
+        // 네이버 로그인 상태 (로그인 쿠키 NID_AUT 가 있으면 로그인)
+        async Task<bool> NaverLoggedIn()
+        {
+            try
+            {
+                if (naverView == null || naverView.CoreWebView2 == null) return false;
+                var cookies = await naverView.CoreWebView2.CookieManager.GetCookiesAsync("https://nid.naver.com");
+                return cookies.Any(c => c.Name == "NID_AUT" && !string.IsNullOrEmpty(c.Value));
+            }
+            catch { return false; }
+        }
+        Button naverLoginBtn;
+        void UpdateNaverLoginButton(bool loggedIn)
+        {
+            if (naverLoginBtn == null) return;
+            naverLoginBtn.Text = loggedIn ? "네이버 로그인 ✔" : "네이버 로그인 필요";
+            naverLoginBtn.BackColor = loggedIn ? Color.FromArgb(220, 245, 225) : Color.FromArgb(255, 228, 200);
+        }
+        async Task RefreshNaverLoginButton() { UpdateNaverLoginButton(await NaverLoggedIn()); }
+
+        // 실제 마우스·키 입력 (DevTools Input): 코드로 값만 넣으면 네이버가 사람 입력으로 보지 않음
+        Task Cdp(Microsoft.Web.WebView2.Core.CoreWebView2 wv, string m, Dictionary<string, object> p)
+        { return wv.CallDevToolsProtocolMethodAsync(m, new System.Web.Script.Serialization.JavaScriptSerializer().Serialize(p)); }
+        async Task CdpClick(Microsoft.Web.WebView2.Core.CoreWebView2 wv, double x, double y)
+        {
+            await Cdp(wv, "Input.dispatchMouseEvent", new Dictionary<string, object> { { "type", "mouseMoved" }, { "x", x }, { "y", y } });
+            await Cdp(wv, "Input.dispatchMouseEvent", new Dictionary<string, object> { { "type", "mousePressed" }, { "x", x }, { "y", y }, { "button", "left" }, { "clickCount", 1 } });
+            await Task.Delay(60);
+            await Cdp(wv, "Input.dispatchMouseEvent", new Dictionary<string, object> { { "type", "mouseReleased" }, { "x", x }, { "y", y }, { "button", "left" }, { "clickCount", 1 } });
+        }
+        async Task CdpType(Microsoft.Web.WebView2.Core.CoreWebView2 wv, string text)
+        {
+            foreach (char ch in text)
+            {
+                string s1 = ch.ToString();
+                var down = new Dictionary<string, object> { { "type", "keyDown" }, { "text", s1 }, { "unmodifiedText", s1 }, { "key", s1 } };
+                var up = new Dictionary<string, object> { { "type", "keyUp" }, { "key", s1 } };
+                if (char.IsDigit(ch)) { down["code"] = up["code"] = "Digit" + s1; down["windowsVirtualKeyCode"] = up["windowsVirtualKeyCode"] = (int)ch; }
+                await Cdp(wv, "Input.dispatchKeyEvent", down);
+                await Cdp(wv, "Input.dispatchKeyEvent", up);
+                await Task.Delay(90);
+            }
+        }
+        async Task CdpEnter(Microsoft.Web.WebView2.Core.CoreWebView2 wv)
+        {
+            await Cdp(wv, "Input.dispatchKeyEvent", new Dictionary<string, object> { { "type", "keyDown" }, { "key", "Enter" }, { "code", "Enter" }, { "windowsVirtualKeyCode", 13 }, { "text", "\r" } });
+            await Cdp(wv, "Input.dispatchKeyEvent", new Dictionary<string, object> { { "type", "keyUp" }, { "key", "Enter" }, { "code", "Enter" }, { "windowsVirtualKeyCode", 13 } });
+        }
+
         static string mobileHtml;
         static string MobileHtml()
         {
@@ -1369,6 +1425,77 @@ namespace SalesTool
                         " const b = [...document.querySelectorAll('button, a, [role=button]')].filter(vis).find(x => /새로고침|다른 문제|새로운 문제|refresh/i.test((x.innerText || x.getAttribute('aria-label') || x.title || '').trim()));" +
                         " if (b) { b.click(); return { ok: true, message: '다른 문제로 바꿨습니다' }; } location.reload(); return { ok: true, message: '화면을 다시 열었습니다' }; })()");
                     return MobileResponse.Json(r);
+                }
+                // ── 네이버 로그인 (휴대폰에서): 네이버 앱의 '일회용 로그인 번호'를 받아 작업 화면에 입력. 비밀번호는 다루지 않음 ──
+                case "/api/naver_login":
+                    return J(new { loggedIn = await NaverLoggedIn(), holding = SmallKeyword.PriceCompare.LoginHold });
+                case "/api/naver_login_start":
+                {
+                    if (naverView == null || naverView.CoreWebView2 == null) return MobileResponse.Error(404, "작업 화면이 아직 없습니다");
+                    if (await NaverLoggedIn()) { UpdateNaverLoginButton(true); return J(new { ok = true, loggedIn = true, message = "이미 네이버에 로그인돼 있습니다" }); }
+                    SmallKeyword.PriceCompare.LoginHold = true;   // 초안 만들기는 네이버 조회 직전에 잠시 기다림
+                    await Task.Delay(1500);
+                    naverView.CoreWebView2.Navigate("https://nid.naver.com/nidlogin.login?mode=number&url=" + Uri.EscapeDataString("https://shopping.naver.com/"));
+                    await Task.Delay(2500);
+                    // 아이디·비밀번호 탭으로 열렸으면 '일회용 번호' 탭으로 바꿈
+                    try
+                    {
+                        await naverView.CoreWebView2.ExecuteScriptAsync("(() => { const vis = e => !!(e.offsetWidth || e.offsetHeight || e.getClientRects().length);" +
+                            " const t = [...document.querySelectorAll('a, button, li, span, [role=tab]')].filter(vis).find(x => /^일회용\\s*번호$/.test((x.innerText || '').trim())); if (t) t.click(); })()");
+                        await Task.Delay(800);
+                    }
+                    catch { }
+                    return J(new { ok = true, loggedIn = false, message = "작업 화면에 네이버 일회용 번호 로그인 화면을 열었습니다" });
+                }
+                case "/api/naver_screen":
+                {
+                    if (naverView == null || naverView.CoreWebView2 == null) return MobileResponse.Error(404, "작업 화면이 아직 없습니다");
+                    using (var ms = new MemoryStream())
+                    {
+                        await naverView.CoreWebView2.CapturePreviewAsync(Microsoft.Web.WebView2.Core.CoreWebView2CapturePreviewImageFormat.Png, ms);
+                        return new MobileResponse { ContentType = "image/png", Body = ms.ToArray() };
+                    }
+                }
+                case "/api/naver_login_number":
+                {
+                    if (naverView == null || naverView.CoreWebView2 == null) return MobileResponse.Error(404, "작업 화면이 아직 없습니다");
+                    string num = Regex.Replace(arg("number") ?? "", @"\D", "");
+                    if (num.Length < 6) return MobileResponse.Error(400, "네이버 앱의 일회용 로그인 번호(숫자)를 넣어 주세요");
+                    if (!SmallKeyword.PriceCompare.LoginHold || !(naverView.Source != null && naverView.Source.Host.Contains("nid.naver.com")))
+                        return MobileResponse.Error(400, "먼저 [로그인 시작]을 눌러 주세요");
+                    var wv = naverView.CoreWebView2;
+                    var p0 = js.DeserializeObject(await wv.ExecuteScriptAsync("(() => { const vis = e => !!(e.offsetWidth || e.offsetHeight || e.getClientRects().length);" +
+                        " const inp = [...document.querySelectorAll('input')].filter(i => vis(i) && /^(text|tel|number|password|)$/i.test(i.getAttribute('type') || ''));" +
+                        " if (!inp.length) return { ok: false };" +
+                        " const i = inp[0]; i.scrollIntoView({ block: 'center' }); i.focus(); Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(i, ''); i.dispatchEvent(new Event('input', { bubbles: true }));" +
+                        " const ri = i.getBoundingClientRect();" +
+                        " const b = [...document.querySelectorAll('button, input[type=submit], a, [role=button]')].filter(vis).find(x => /^로그인$/.test((x.innerText || x.value || '').trim()));" +
+                        " const rb = b ? b.getBoundingClientRect() : null;" +
+                        " return { ok: true, ix: ri.left + ri.width / 2, iy: ri.top + ri.height / 2, bx: rb ? rb.left + rb.width / 2 : -1, by: rb ? rb.top + rb.height / 2 : -1 }; })()")) as Dictionary<string, object>;
+                    if (p0 == null || !Convert.ToBoolean(p0["ok"])) return J(new { ok = false, loggedIn = false, message = "작업 화면에 번호 넣는 칸이 없습니다. [로그인 시작]을 다시 눌러 주세요" });
+                    await CdpClick(wv, Convert.ToDouble(p0["ix"]), Convert.ToDouble(p0["iy"]));
+                    await Task.Delay(150);
+                    await CdpType(wv, num);
+                    await Task.Delay(300);
+                    double bx = Convert.ToDouble(p0["bx"]), by = Convert.ToDouble(p0["by"]);
+                    if (bx >= 0) await CdpClick(wv, bx, by); else await CdpEnter(wv);
+                    bool ok = false;
+                    for (int t = 0; t < 12 && !ok; t++) { await Task.Delay(800); ok = await NaverLoggedIn(); }
+                    if (ok)
+                    {
+                        SmallKeyword.PriceCompare.LoginHold = false;
+                        UpdateNaverLoginButton(true);
+                        wv.Navigate("https://shopping.naver.com/");
+                        return J(new { ok = true, loggedIn = true, message = "네이버에 로그인했습니다. 초안 만들기를 이어서 합니다." });
+                    }
+                    return J(new { ok = true, loggedIn = false, message = "아직 로그인되지 않았습니다. 번호가 만료됐거나 틀렸을 수 있어요. 화면을 확인하고 새 번호로 다시 해 주세요." });
+                }
+                case "/api/naver_login_cancel":
+                {
+                    SmallKeyword.PriceCompare.LoginHold = false;
+                    if (naverView != null && naverView.CoreWebView2 != null && naverView.Source != null && naverView.Source.Host.Contains("nid.naver.com"))
+                        naverView.CoreWebView2.Navigate("https://shopping.naver.com/");
+                    return J(new { ok = true, message = "로그인을 그만두고 초안 만들기를 이어서 합니다" });
                 }
                 case "/api/add":
                     codesBox.Text = arg("codes"); AddCodes();

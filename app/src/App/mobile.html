@@ -157,6 +157,9 @@ async function home() {
     '<div class="stat"><b>' + s.review + '</b><span>검토 대기</span></div></div>' +
     (s.running ? '<p class="sub">진행 중: <b>' + esc(s.running.code) + '</b> ' + esc(s.running.step || '') + '</p>' : '') +
     (s.paused ? '<p class="st-warn">⏸ 멈춤 (네이버 보안 확인 등). PC에서 푼 뒤 <button class="ghost" onclick="act(\'continue\')">계속</button></p>' : '') + '</div>';
+  // 네이버 로그인: 상태를 늘 보여 주고, 네이버 앱의 일회용 로그인 번호로 로그인
+  h += '<div class="card" id="nvcard"><div class="row" style="justify-content:space-between"><div><div class="name">네이버 로그인</div><div class="sub" id="nvstate">확인 중…</div></div>' +
+    '<button id="nvbtn" class="ghost" onclick="nvStart()">로그인</button></div><div id="nvbox"></div></div>';
   // 네이버 보안 확인: PC 작업 화면을 보여 주고, 여기서 넣은 답을 PC 화면에 입력
   if (s.captcha) {
     h += '<div class="card"><div class="name st-warn">🔒 네이버 보안 확인</div><p class="sub">아래 PC 작업 화면의 문제를 보고 답을 넣으세요. 그림을 누르면 크게 보입니다.</p>' +
@@ -171,6 +174,7 @@ async function home() {
     '<p class="sub">발주 ' + s.ordered + '건 · 송장 ' + s.tracked + '건 · 확인 필요 ' + s.pending + '건</p>' + (s.lastShortage ? '<p class="st-warn">' + esc(s.lastShortage) + '</p>' : '') + '</div>';
   h += '<div class="card"><div class="name">최근 기록</div><div class="log">' + esc((s.log || []).slice().reverse().join('\n')) + '</div></div>';
   M.innerHTML = h;
+  nvRefresh();
   if (s.captcha) {
     try {
       const i = await api('captcha_info'); const q = $('#capq');
@@ -180,6 +184,34 @@ async function home() {
     } catch (e) {}
   }
 }
+// ── 네이버 로그인 (일회용 로그인 번호) ──
+async function nvRefresh() {
+  try {
+    const r = await api('naver_login'); const st = $('#nvstate'), b = $('#nvbtn'); if (!st) return;
+    if (r.loggedIn) { st.innerHTML = '<span class="st-ok">✔ 로그인됨</span> · 보안 확인이 덜 뜹니다'; b.style.display = 'none'; $('#nvbox').innerHTML = ''; }
+    else { st.innerHTML = '<span class="st-warn">로그인 안 됨</span> · 로그인하면 보안 확인이 덜 뜹니다'; b.style.display = ''; if (r.holding) nvShow(); }
+  } catch (e) {}
+}
+function nvShow() {
+  $('#nvbox').innerHTML =
+    '<p class="sub" style="margin-top:8px"><b>1.</b> 휴대폰 <b>네이버 앱</b> → 왼쪽 위 메뉴(☰) → 설정(⚙) → <b>로그인 아이디 관리</b> → <b>일회용 로그인 번호</b>를 누르면 숫자 8자리가 나와요.<br><b>2.</b> 그 숫자를 아래에 넣고 [로그인]을 누르세요. (번호는 몇 분만 쓸 수 있어요)</p>' +
+    '<div class="row"><input id="nvnum" inputmode="numeric" placeholder="일회용 번호 8자리" autocomplete="one-time-code" onkeydown="if(event.key===\'Enter\')nvSend()"><button onclick="nvSend()">로그인</button></div>' +
+    '<img id="nvimg" src="/api/naver_screen?key=' + encodeURIComponent(KEY) + '&t=' + Date.now() + '" onclick="window.open(this.src)" style="width:100%;margin-top:8px;border:1px solid var(--line);border-radius:6px;background:#fff">' +
+    '<div class="row" style="margin-top:6px"><button class="ghost" onclick="nvStart(true)">화면 새로</button><button class="ghost" onclick="nvCancel()">그만두기</button></div>';
+}
+async function nvStart(again) {
+  try {
+    const r = await api('naver_login_start', {}); if (r.loggedIn) { toast(r.message); nvRefresh(); return; }
+    nvShow(); if (!again) toast('PC 작업 화면에 로그인 화면을 열었어요. 일회용 번호를 넣어 주세요.');
+  } catch (e) { toast(e.message); }
+}
+async function nvSend() {
+  const v = ($('#nvnum').value || '').replace(/\D/g, ''); if (!v) return;
+  toast('로그인 중…');
+  try { const r = await api('naver_login_number', { number: v }); toast(r.message); if (r.loggedIn) { load(); return; } } catch (e) { toast(e.message); }
+  const im = $('#nvimg'); if (im) im.src = '/api/naver_screen?key=' + encodeURIComponent(KEY) + '&t=' + Date.now();
+}
+async function nvCancel() { try { const r = await api('naver_login_cancel', {}); toast(r.message); } catch (e) {} load(); }
 async function capSend() {
   const v = ($('#capa').value || '').trim(); if (!v) return;
   const btn = event && event.target; if (btn && btn.tagName === 'BUTTON') { btn.disabled = true; btn.innerText = '보내는 중…'; }

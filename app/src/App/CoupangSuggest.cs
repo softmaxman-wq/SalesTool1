@@ -101,6 +101,7 @@ namespace SalesTool
         async Task<bool> EnsureOpen()
         {
             if (view == null || view.CoreWebView2 == null) return false;
+            await SmallKeyword.PriceCompare.WaitLogin(null);   // 네이버 로그인 중에는 작업 화면을 쓰지 않음
             try
             {
                 if (view.Source != null && view.Source.Host != null && view.Source.Host.EndsWith("coupang.com"))

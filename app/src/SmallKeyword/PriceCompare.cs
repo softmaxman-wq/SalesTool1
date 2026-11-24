@@ -176,15 +176,34 @@ namespace SmallKeyword
             return page;
         }
 
+        // 휴대폰 앱에서 네이버 로그인 중이면 작업 화면을 쓰지 않고 기다림 (같은 작업 화면에서 로그인함)
+        public static volatile bool LoginHold;
+        public static async Task WaitLogin(Action<string> report)
+        {
+            for (int i = 0; LoginHold && i < 600; i++)   // 최대 10분
+            {
+                if (i % 10 == 0 && report != null) report("네이버 로그인 중이라 잠시 기다립니다...");
+                await Task.Delay(1000);
+            }
+        }
+
         async Task<PageResult> ReadLive(string query, bool withTitles, Action<string> report, Func<bool> cancelled, string catId, bool needCats, int pageIndex)
         {
             int catTries = 0;
+            await WaitLogin(report);
             await Navigate(SearchUrl(query, catId, pageIndex));
             DateTime giveUp = DateTime.Now.AddMinutes(10);
             int lastCount = -1, still = 0, waits = 0, stale = 0;
             while (true)
             {
                 if (cancelled()) return null;
+                if (LoginHold)
+                {
+                    await WaitLogin(report);
+                    await Navigate(SearchUrl(query, catId, pageIndex));
+                    giveUp = DateTime.Now.AddMinutes(10); waits = 0; stale = 0;
+                    continue;
+                }
                 if (DateTime.Now > giveUp) throw new Exception("10분 동안 화면이 나오지 않아 멈췄습니다.");
                 var r = await Eval(ReadJs);
                 string state = r == null ? "loading" : Convert.ToString(r["state"]);
