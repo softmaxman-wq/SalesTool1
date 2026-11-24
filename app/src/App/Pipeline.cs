@@ -24,7 +24,28 @@ namespace SalesTool
         readonly Random rnd = new Random();
 
         // 상품명·키워드 규칙을 바꿀 때마다 올림 → 예전 규칙으로 만든 초안은 켤 때 자동으로 다시 만듦
-        public const int RulesVersion = 29;
+        public const int RulesVersion = 30;
+
+        // msgood 분류로 카테고리를 고정하는 상품 종류 (유산균: 대표이미지에 가르시니아·바나바잎이 크게 있어도 프로바이오틱스로)
+        public static string ForcedCatPath(Job job)
+        {
+            string m = Regex.Replace(job.Category ?? "", @"\s+", "");
+            if (m.EndsWith(">유산균") || m == "유산균") return "식품>건강식품>영양제>프로바이오틱스";
+            return null;
+        }
+        // 다른 카테고리 단어를 붙일 이 카테고리의 대표 말 (체지방감소 → 체지방감소유산균)
+        public static string CategoryCoreWord(Job job)
+        {
+            if (ForcedCatPath(job) != null) return "유산균";
+            string leaf = (job.CatPath ?? job.NaverCatName ?? "").Split('>').Last().Trim();
+            return Regex.IsMatch(leaf, "^[가-힣]{2,7}$") ? leaf : null;
+        }
+        // 이 카테고리 상품인지 보여 주는 말이 들어 있나 (유산균 상품의 시작 단어 확인용)
+        static bool HasCoreTerm(Job job, string w)
+        {
+            if (ForcedCatPath(job) == null) return true;
+            return Regex.IsMatch(Regex.Replace(w ?? "", @"\s+", ""), "유산균|바이오틱스|비피더스|락토|프로바이오");
+        }
 
         // 어떤 영양제에나 붙일 수 있는 종류 말 (아연영양제·아연보충제)
         static readonly HashSet<string> GenericType = new HashSet<string> { "영양제", "보충제", "영양보충제", "건강식품", "서플리먼트" };
@@ -203,9 +224,39 @@ namespace SalesTool
                                    .OrderByDescending(w => seedVols.ContainsKey(w) ? seedVols[w].Total : 0).FirstOrDefault();
                 if (altSeed != null) { seed = altSeed; job.SeedReason = "부적합 단어 대신 핵심 원료/성분 단어 선정 (" + altSeed + ")"; }
             }
+            // 잘린 조각(슬림다·혈당케·다이어트엔·유산균의·폴리시)이 시작 단어가 되지 않게: 앞 단어가 실제로 검색되는 말인지 확인
+            if (!string.IsNullOrEmpty(seed))
+            {
+                string head = seed.Split(' ')[0];
+                Volume hv;
+                if (!seedVols.TryGetValue(head, out hv))
+                {
+                    try { var got = await Task.Run(() => ad.Volumes(new List<string> { head }, (d, n) => { }, () => false)); if (got.ContainsKey(head)) { hv = got[head]; seedVols[head] = hv; } } catch { }
+                }
+                if (hv == null || hv.Total < 100)
+                {
+                    string alt = null;
+                    if (ForcedCatPath(job) != null) alt = "유산균";
+                    else
+                    {
+                        string leafName = (job.NaverCatName ?? job.CatPath ?? "").Split('>').Last().Trim();
+                        if (leafName.Length >= 2 && Key(job.Name).Contains(Key(leafName))) alt = leafName;
+                        else alt = cands.Concat(sc.Item1).Where(w => w != seed && w.Length >= 2 && !isBareForm(w) && Naming.IsCandidate(w) && seedVols.ContainsKey(w) && seedVols[w].Total >= 100)
+                                        .OrderByDescending(w => seedVols[w].Total).FirstOrDefault();
+                    }
+                    if (alt != null) { job.SeedReason = "'" + head + "'은 검색량이 거의 없는 조각이라 '" + alt + "'(으)로 바꿈"; seed = seed.Contains(" ") ? alt + seed.Substring(seed.IndexOf(' ')) : alt; }
+                }
+            }
+            // 유산균 상품은 시작 단어에 유산균·프로바이오틱스 같은 말이 있어야 함 (다이어트·가르시니아·인지력케어로 시작하면 그 카테고리 상품명이 됨)
+            if (!string.IsNullOrEmpty(seed) && !HasCoreTerm(job, seed))
+            {
+                job.SeedReason = "msgood 분류가 유산균이라 '" + seed + "' 대신 유산균으로 시작";
+                seed = seed.Contains(" ") ? "유산균" + seed.Substring(seed.IndexOf(' ')) : "유산균";
+            }
             if (string.IsNullOrEmpty(seed) || Naming.BannedFragments.Contains(seed))
             {
-                seed = "홍화씨유"; // 안전 대체
+                seed = ForcedCatPath(job) != null ? "유산균" : (sc.Item1.OrderByDescending(c => c.Length).FirstOrDefault() ?? Naming.CoreName(job.Name, job.Brand));
+                job.SeedReason = "시작 단어를 찾지 못해 상품명 핵심 단어 사용";
             }
             job.Seed = seed; job.DraftSeed = seed;
 
@@ -378,6 +429,41 @@ namespace SalesTool
                 await Task.Delay(2000 + rnd.Next(1500));
             }
 
+            // 다른 카테고리 단어(체지방감소·가르시니아·바나바잎·포스파티딜세린)는 단독으로 쓰지 않고, 이 카테고리 대표 말을 붙인 조합어
+            // (체지방감소유산균·다이어트유산균·혈당유산균)가 실제로 검색되고 검색 결과가 이 카테고리면 그 조합어로 바꿔 씀
+            string coreWord = CategoryCoreWord(job);
+            if (leaf != null && coreWord != null)
+            {
+                bool forced = ForcedCatPath(job) != null;
+                var others = rows.Skip(1).Where(r => r.Excluded == null && (forced || !r.Core) && r.CatChecked && r.CatShare >= 0 && r.CatShare < 0.5 && (r.Mentioned || r.InName)
+                                                  && Key(r.Word).Length >= 2 && !Key(r.Word).Contains(Key(coreWord)) && !Key(seed).Contains(Key(r.Word)))
+                                     .OrderByDescending(r => r.Volume).Take(8).ToList();
+                var combos = others.Select(r => Key(r.Word) + coreWord).Distinct().ToList();
+                Dictionary<string, Volume> cv = new Dictionary<string, Volume>();
+                if (combos.Count > 0) try { cv = await Task.Run(() => ad.Volumes(combos, (d, n) => { }, () => false)); } catch { }
+                foreach (var r in others)
+                {
+                    string combo = Key(r.Word) + coreWord;
+                    // 원래 단어는 단독으로 상품명·검색어에 안 씀
+                    r.Excluded = "다른 카테고리 (" + (int)Math.Round(r.CatShare * 100) + "%)";
+                    Volume v;
+                    if (!cv.TryGetValue(combo, out v) || v.Total < Naming.RestMinVolume || rows.Any(x => Key(x.Word) == Key(combo))) continue;
+                    step("3/6 조합어 카테고리 확인 중... (" + combo + ")");
+                    try
+                    {
+                        var p = await shop.Read(combo, false, step, () => false, null, true);
+                        double s = p != null ? share(p) : -1;
+                        if (p != null && s >= 0.5)
+                        {
+                            rows.Add(new KwRow { Word = combo, Volume = v.Total, Total = p.Total, InPage = r.InPage, Mentioned = true, CatChecked = true, CatShare = s });
+                            r.Excluded = "다른 카테고리 → " + combo;
+                        }
+                    }
+                    catch (NaverBlocked) { throw; }
+                    catch { }
+                    await Task.Delay(2000 + rnd.Next(1500));
+                }
+            }
 
             // 인물명: 상품명에 들어갈 만한 단어만 네이버 통합검색에서 프로필이 나오는지 확인
             var likely = Naming.Ordered(rows.Skip(1), job.OrderMode ?? set.OrderMode, set.MaxRatio, learn).Take(18).ToList();
@@ -1647,12 +1733,25 @@ namespace SalesTool
                     if (hf.Key != null && hf.Value >= top.Value * 0.2) job.CatPath = hf.Key;
                 }
             }
+            // msgood 분류가 유산균이면 프로바이오틱스(또는 프리바이오틱스)로 고정: 가르시니아·카테킨·바나바잎 카테고리로 잡히면 상품명도 그쪽 단어로 채워짐
+            string forcedCat = ForcedCatPath(job);
+            if (forcedCat != null)
+            {
+                string lf = (job.CatPath ?? "").Split('>').Last();
+                if (lf != "프로바이오틱스" && lf != "프리바이오틱스")
+                {
+                    step("2/6 msgood 분류가 유산균이라 카테고리를 프로바이오틱스로 정함 (검색 결과: " + (job.CatPath ?? "없음") + ")");
+                    job.CatPath = forcedCat;
+                    job.NaverCat = null; job.NaverCatName = null;
+                }
+                repQuery = null;   // 쿠팡도 대표 성분(가르시니아)이 아니라 유산균으로 찾음
+            }
 
             var reg = Accounts.Registrar("1", settings(), false);
             if (reg == null) return;
 
             // 0순위: 쿠팡에 직접 들어가서 [주원료 + 제형](예: "홍화씨유 캡슐") 검색 후 상위 5개 상품 카테고리 실시간 확인
-            string cpSearchQuery = repQuery;
+            string cpSearchQuery = forcedCat != null ? "유산균" : repQuery;
             if (string.IsNullOrWhiteSpace(cpSearchQuery))
             {
                 string leafWord = job.CatPath != null ? job.CatPath.Split('>').Last() : "";
@@ -1697,7 +1796,7 @@ namespace SalesTool
                     if (job.CoupangCat == null)
                     {
                         string leaf = job.NaverCatName != null ? job.NaverCatName.Split('>').Last() : "";
-                        string rep = BuildRepCategoryQuery(job);
+                        string rep = forcedCat != null ? "유산균" : BuildRepCategoryQuery(job);
                         string basis = !string.IsNullOrEmpty(rep) ? rep : (job.DetailMain ?? leaf);
                         var k = reg.SuggestCoupangCategory((basis + " " + leaf).Trim());
                         if (k != null) { job.CoupangCat = k.Item1; job.CoupangCatName = k.Item2; }
