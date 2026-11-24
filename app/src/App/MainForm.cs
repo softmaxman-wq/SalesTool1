@@ -1305,17 +1305,61 @@ namespace SalesTool
                     if (naverView == null || naverView.CoreWebView2 == null) return MobileResponse.Error(404, "작업 화면이 아직 없습니다");
                     string ans = (arg("answer") ?? "").Trim();
                     if (ans.Length == 0) return MobileResponse.Error(400, "답을 넣어 주세요");
-                    string r = await naverView.CoreWebView2.ExecuteScriptAsync("(() => { const A = " + js.Serialize(ans) + ";" +
-                        " const vis = e => !!(e.offsetWidth || e.offsetHeight || e.getClientRects().length);" +
+                    var wv = naverView.CoreWebView2;
+                    // 1) 답 칸·확인 버튼 위치 찾기 (칸은 비워 둠). 네이버는 코드로 넣은 값은 사람이 친 것으로 안 봐서,
+                    //    실제 클릭·키 입력(DevTools Input)으로 보냄
+                    string q0 = await wv.ExecuteScriptAsync("(() => { const vis = e => !!(e.offsetWidth || e.offsetHeight || e.getClientRects().length);" +
                         " const inp = [...document.querySelectorAll('input')].filter(i => vis(i) && /^(text|tel|number|search|)$/i.test(i.getAttribute('type') || ''));" +
-                        " if (!inp.length) return { ok: false, message: '작업 화면에 답 넣는 칸이 없습니다 (이미 풀렸을 수 있음)' };" +
-                        " const i = inp[0]; i.focus(); Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(i, A);" +
-                        " i.dispatchEvent(new Event('input', { bubbles: true })); i.dispatchEvent(new Event('change', { bubbles: true }));" +
-                        " const b = [...document.querySelectorAll('button, input[type=submit], input[type=button], a')].filter(vis).find(x => /^(확인|제출|입력)$/.test((x.innerText || x.value || '').trim()));" +
-                        " if (b) { b.click(); return { ok: true, message: '답을 넣고 확인을 눌렀습니다' }; }" +
-                        " if (i.form) { if (i.form.requestSubmit) i.form.requestSubmit(); else i.form.submit(); return { ok: true, message: '답을 넣고 제출했습니다' }; }" +
-                        " i.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', keyCode: 13, bubbles: true })); return { ok: true, message: '답을 넣고 Enter를 눌렀습니다' }; })()");
-                    return MobileResponse.Json(r);
+                        " if (!inp.length) return { ok: false };" +
+                        " const i = inp[0]; i.scrollIntoView({ block: 'center' }); i.focus(); i.select && i.select();" +
+                        " Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(i, ''); i.dispatchEvent(new Event('input', { bubbles: true }));" +
+                        " const ri = i.getBoundingClientRect();" +
+                        " const b = [...document.querySelectorAll('button, input[type=submit], input[type=button], a, [role=button]')].filter(vis).find(x => /^(확인|제출|입력)$/.test((x.innerText || x.value || '').trim()));" +
+                        " const rb = b ? b.getBoundingClientRect() : null;" +
+                        " return { ok: true, ix: ri.left + ri.width / 2, iy: ri.top + ri.height / 2, bx: rb ? rb.left + rb.width / 2 : -1, by: rb ? rb.top + rb.height / 2 : -1 }; })()");
+                    var p0 = js.DeserializeObject(q0) as Dictionary<string, object>;
+                    if (p0 == null || !Convert.ToBoolean(p0["ok"])) return J(new { ok = false, passed = false, message = "작업 화면에 답 넣는 칸이 없습니다 (이미 풀렸을 수 있음)" });
+                    Func<string, Dictionary<string, object>, Task> cdp = (m, prm) => wv.CallDevToolsProtocolMethodAsync(m, js.Serialize(prm));
+                    Func<double, double, Task> click = async (x, y) =>
+                    {
+                        await cdp("Input.dispatchMouseEvent", new Dictionary<string, object> { { "type", "mouseMoved" }, { "x", x }, { "y", y } });
+                        await cdp("Input.dispatchMouseEvent", new Dictionary<string, object> { { "type", "mousePressed" }, { "x", x }, { "y", y }, { "button", "left" }, { "clickCount", 1 } });
+                        await Task.Delay(60);
+                        await cdp("Input.dispatchMouseEvent", new Dictionary<string, object> { { "type", "mouseReleased" }, { "x", x }, { "y", y }, { "button", "left" }, { "clickCount", 1 } });
+                    };
+                    await click(Convert.ToDouble(p0["ix"]), Convert.ToDouble(p0["iy"]));
+                    await Task.Delay(150);
+                    // 2) 한 글자씩 실제 키 입력
+                    foreach (char ch in ans)
+                    {
+                        string s1 = ch.ToString();
+                        var down = new Dictionary<string, object> { { "type", "keyDown" }, { "text", s1 }, { "unmodifiedText", s1 }, { "key", s1 } };
+                        if (char.IsDigit(ch)) { down["code"] = "Digit" + s1; down["windowsVirtualKeyCode"] = (int)ch; }
+                        await cdp("Input.dispatchKeyEvent", down);
+                        var up = new Dictionary<string, object> { { "type", "keyUp" }, { "key", s1 } };
+                        if (char.IsDigit(ch)) { up["code"] = "Digit" + s1; up["windowsVirtualKeyCode"] = (int)ch; }
+                        await cdp("Input.dispatchKeyEvent", up);
+                        await Task.Delay(90);
+                    }
+                    await Task.Delay(300);
+                    // 3) 확인 버튼 실제 클릭 (없으면 Enter)
+                    double bx = Convert.ToDouble(p0["bx"]), by = Convert.ToDouble(p0["by"]);
+                    if (bx >= 0) await click(bx, by);
+                    else
+                    {
+                        await cdp("Input.dispatchKeyEvent", new Dictionary<string, object> { { "type", "keyDown" }, { "key", "Enter" }, { "code", "Enter" }, { "windowsVirtualKeyCode", 13 }, { "text", "\r" } });
+                        await cdp("Input.dispatchKeyEvent", new Dictionary<string, object> { { "type", "keyUp" }, { "key", "Enter" }, { "code", "Enter" }, { "windowsVirtualKeyCode", 13 } });
+                    }
+                    // 4) 풀렸는지 확인 (보안 확인 화면이 사라졌는지)
+                    bool still = true; string q1 = "";
+                    for (int t = 0; t < 8 && still; t++)
+                    {
+                        await Task.Delay(700);
+                        var c = js.DeserializeObject(await wv.ExecuteScriptAsync("(() => { const t = document.body ? document.body.innerText : ''; return { c: t.slice(0, 600).indexOf('보안 확인') >= 0, q: (t.split('\\n').find(x => /\\?|입니까/.test(x)) || '').trim() }; })()")) as Dictionary<string, object>;
+                        still = c == null || Convert.ToBoolean(c["c"]);
+                        q1 = c == null ? "" : Convert.ToString(c["q"]);
+                    }
+                    return J(new { ok = true, passed = !still, message = still ? "아직 보안 확인 화면입니다 (답이 틀렸거나 새 문제가 나왔을 수 있어요). 새 문제를 확인하세요." : "통과했습니다. 이어서 진행합니다.", question = q1 });
                 }
                 case "/api/captcha_refresh":
                 {

@@ -182,8 +182,9 @@ async function home() {
 }
 async function capSend() {
   const v = ($('#capa').value || '').trim(); if (!v) return;
+  const btn = event && event.target; if (btn && btn.tagName === 'BUTTON') { btn.disabled = true; btn.innerText = '보내는 중…'; }
   try { const r = await api('captcha_answer', { answer: v }); toast(r.message || '보냈습니다'); } catch (e) { toast(e.message); }
-  setTimeout(load, 3000);   // 풀렸는지(다음 단계로 넘어갔는지) 다시 확인
+  load();   // 풀렸으면 카드가 사라지고, 아니면 새 문제 그림을 다시 보여 줌
 }
 async function capRefresh() {
   try { const r = await api('captcha_refresh', {}); toast(r.message || '완료'); } catch (e) { toast(e.message); }
