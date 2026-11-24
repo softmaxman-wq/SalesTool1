@@ -94,7 +94,89 @@ namespace SmallKeyword
 
         // withTitles: 1페이지 상품명까지 (아래로 내려가며 40개를 다 불러옴). 아니면 전체 상품 수만
         // needCats: 상품마다 카테고리 경로까지 (5개 이상 보일 때까지 조금 기다리고 내림)
+        // ── 조회 결과 저장 (7일): 같은 검색어를 상품마다 다시 열지 않아 네이버 보안 확인이 덜 뜸 ──
+        public static int CacheDays = 7;
+        public static int CacheHits;   // 이번 실행에서 저장된 결과를 다시 쓴 횟수
+        public bool LastCached;        // 방금 Read 가 저장된 결과였는지 (그러면 다음 조회 전 기다릴 필요 없음)
+        public class CacheEntry { public DateTime At; public PageResult Page; public bool Titles, Cats; }
+        static Dictionary<string, CacheEntry> cache;
+        static readonly object cacheLock = new object();
+        static string CachePath { get { return Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "naver_cache.json"); } }
+
+        static string CacheKey(string query, string catId, int pageIndex)
+        {
+            string q = System.Text.RegularExpressions.Regex.Replace((query ?? "").Trim().ToLowerInvariant(), @"\s+", " ");
+            return q + "|" + (catId ?? "") + "|" + pageIndex;
+        }
+
+        static void LoadCache()
+        {
+            if (cache != null) return;
+            cache = new Dictionary<string, CacheEntry>();
+            try
+            {
+                if (!File.Exists(CachePath)) return;
+                var js = new JavaScriptSerializer { MaxJsonLength = int.MaxValue };
+                var d = js.Deserialize<Dictionary<string, CacheEntry>>(File.ReadAllText(CachePath, System.Text.Encoding.UTF8));
+                if (d != null) foreach (var kv in d) if (kv.Value != null && (kv.Value.At = kv.Value.At.ToLocalTime()) != DateTime.MinValue && kv.Value.Page != null && (DateTime.Now - kv.Value.At).TotalDays < CacheDays) cache[kv.Key] = kv.Value;
+            }
+            catch { cache = new Dictionary<string, CacheEntry>(); }
+        }
+
+        static void SaveCache()
+        {
+            try
+            {
+                var js = new JavaScriptSerializer { MaxJsonLength = int.MaxValue };
+                string tmp = CachePath + ".tmp";
+                File.WriteAllText(tmp, js.Serialize(cache), new System.Text.UTF8Encoding(false));
+                if (File.Exists(CachePath)) File.Delete(CachePath);
+                File.Move(tmp, CachePath);
+            }
+            catch { }
+        }
+
+        public static void ClearCache()
+        {
+            lock (cacheLock) { cache = new Dictionary<string, CacheEntry>(); try { File.Delete(CachePath); } catch { } }
+        }
+
         public async Task<PageResult> Read(string query, bool withTitles, Action<string> report, Func<bool> cancelled, string catId = null, bool needCats = false, int pageIndex = 1)
+        {
+            LastCached = false;
+            string key = CacheKey(query, catId, pageIndex);
+            lock (cacheLock)
+            {
+                LoadCache();
+                CacheEntry e;
+                // 저장된 결과가 이번에 필요한 만큼(상품명·카테고리) 들어 있으면 네이버를 열지 않고 그대로 씀
+                if (cache.TryGetValue(key, out e) && (DateTime.Now - e.At).TotalDays < CacheDays
+                    && (!withTitles || e.Titles) && (!needCats || e.Cats || e.Page.Total == 0))
+                {
+                    CacheHits++; LastCached = true;
+                    if (report != null) report("'" + query + "' 은 " + (int)Math.Max(0, (DateTime.Now - e.At).TotalDays) + "일 전에 찾은 결과를 다시 씀");
+                    return e.Page;
+                }
+            }
+            var page = await ReadLive(query, withTitles, report, cancelled, catId, needCats, pageIndex);
+            if (page != null && page.Total >= 0)
+            {
+                lock (cacheLock)
+                {
+                    CacheEntry old;
+                    bool hasCats = page.Categories.Count >= 3;
+                    // 이미 더 많이 읽어 둔 결과(상품명·카테고리 포함)가 있으면 덮어쓰지 않음
+                    if (!(cache.TryGetValue(key, out old) && (DateTime.Now - old.At).TotalDays < CacheDays && (old.Titles && !withTitles) && (old.Cats || !hasCats)))
+                    {
+                        cache[key] = new CacheEntry { At = DateTime.Now, Page = page, Titles = withTitles, Cats = hasCats };
+                        SaveCache();
+                    }
+                }
+            }
+            return page;
+        }
+
+        async Task<PageResult> ReadLive(string query, bool withTitles, Action<string> report, Func<bool> cancelled, string catId, bool needCats, int pageIndex)
         {
             int catTries = 0;
             await Navigate(SearchUrl(query, catId, pageIndex));

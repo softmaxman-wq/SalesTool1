@@ -26,6 +26,9 @@ namespace SalesTool
         // 상품명·키워드 규칙을 바꿀 때마다 올림 → 예전 규칙으로 만든 초안은 켤 때 자동으로 다시 만듦
         public const int RulesVersion = 30;
 
+        // 네이버 쇼핑을 실제로 열었을 때만 쉼 (저장된 결과를 다시 쓴 경우는 바로 다음으로)
+        Task ShopPause() { return shop != null && shop.LastCached ? Task.FromResult(0) : Task.Delay(2000 + rnd.Next(1500)); }
+
         // msgood 분류로 카테고리를 고정하는 상품 종류 (유산균: 대표이미지에 가르시니아·바나바잎이 크게 있어도 프로바이오틱스로)
         public static string ForcedCatPath(Job job)
         {
@@ -426,7 +429,7 @@ namespace SalesTool
                 }
                 catch (NaverBlocked) { throw; }
                 catch { }
-                await Task.Delay(2000 + rnd.Next(1500));
+                await ShopPause();
             }
 
             // 다른 카테고리 단어(체지방감소·가르시니아·바나바잎·포스파티딜세린)는 단독으로 쓰지 않고, 이 카테고리 대표 말을 붙인 조합어
@@ -461,7 +464,7 @@ namespace SalesTool
                     }
                     catch (NaverBlocked) { throw; }
                     catch { }
-                    await Task.Delay(2000 + rnd.Next(1500));
+                    await ShopPause();
                 }
             }
 
@@ -517,7 +520,7 @@ namespace SalesTool
             {
                 long seedAll = -1;
                 try { var sp = await shop.Read(seed, false, step, () => false, null, false); if (sp != null) seedAll = sp.Total; } catch (NaverBlocked) { throw; } catch { }
-                await Task.Delay(2000 + rnd.Next(1500));
+                await ShopPause();
                 foreach (var kv in nearTypos)
                 {
                     step("3/6 오타 확인 중... (" + kv.Key + ")");
@@ -530,7 +533,7 @@ namespace SalesTool
                     }
                     catch (NaverBlocked) { throw; }
                     catch { }
-                    await Task.Delay(2000 + rnd.Next(1500));
+                    await ShopPause();
                 }
                 foreach (var kv in concernCands)
                 {
@@ -543,7 +546,7 @@ namespace SalesTool
                     }
                     catch (NaverBlocked) { throw; }
                     catch { }
-                    await Task.Delay(2000 + rnd.Next(1500));
+                    await ShopPause();
                 }
             }
 
@@ -1020,7 +1023,7 @@ namespace SalesTool
                     }
                     catch (NaverBlocked) { break; }
                     catch { }
-                    await Task.Delay(2000 + rnd.Next(1500));
+                    await ShopPause();
                 }
             }
             finally { showTab("review"); }
@@ -1705,7 +1708,7 @@ namespace SalesTool
                 var page = await shop.Read(q, true, step, () => false);
                 for (int i = 0; i < page.Titles.Count; i++) if (!page.Ads[i]) { job.CatTitles.Add(page.Titles[i]); if (q == job.TypeSuffix) job.SuffixTitles.Add(page.Titles[i]); }
                 foreach (var p in page.Categories.Where(p => p.StartsWith("식품"))) { int n; tally.TryGetValue(p, out n); tally[p] = n + 1; }
-                await Task.Delay(2000 + rnd.Next(1500));
+                await ShopPause();
             }
             // 가공 형태인데 원물 카테고리만 나왔으면 (부부 부추 → 생부추만) 형태를 붙여 한 번 더 (부추환)
             if (processed && !tally.Keys.Any(k => !rawFood(k)))
