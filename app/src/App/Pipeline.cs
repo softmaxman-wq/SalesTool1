@@ -1145,19 +1145,26 @@ namespace SalesTool
                 // 위험 검색어(약, 치료약, 브랜드명, 인물명) 발굴 및 UI 검토용 목록 구성 (쿠팡 검색어에는 오직 안전하고 규격에 맞는 태그만 반영)
                 try
                 {
-                    step("5/6 위험 검색어 발굴 및 UI 검토 목록 생성 중... (약·치료약·브랜드·인물)");
+                    step("5/6 위험·인물 검색어 발굴 및 UI 검토 목록 생성 중... (약·치료약·브랜드·의사·약사·유명인)");
                     var personK = job.Keywords.Where(k => k.Excluded == "인물").Select(k => Key(k.Word)).Where(k => k.Length >= 2).ToList();
+
+                    // 유명인/의사/약사/전문가 (연예인, 의사, 약사, 한의사, 명의 등) 정규식
+                    var celebRe = new Regex(@"(유재석|강호동|신동엽|이만기|송가인|임영웅|정동원|장민호|영탁|이찬원|김종국|아이유|여에스더|오은영|이경제|이시형|서재걸|권오중|남재현|박용우|유태우|홍혜걸|고약사|약들약|리틀약사|정세연|김연아|박서준|차승원|조승우|이병헌|김혜수|전지현|이영애|공유|현빈|마동석|조정석|남궁민|안정환|추성훈|김동현|하정우|성동일|의사|약사|한의사|전문의|약사추천|의사추천|한의사추천|교수|박사|원장|명의|닥터)");
+
+                    // 노인, 수험생, 여성, 남성 등 연령/성별/대상군 단어 엄격 제외 정규식
+                    var audienceRe = new Regex(@"(노인|어르신|부모님|아버지|어머니|시부모|시어머니|시아버지|수험생|고3|청소년|중학생|고등학생|대학생|어린이|유아|소아|임산부|임신|수유부|임부|여자|여성|남자|남성|성인|직장인|군인|군대|피엑스|\bpx\b|10대|20대|30대|40대|50대|60대|70대|80대)");
+
                     Func<string, string> riskWhy = t =>
                     {
                         string k = Key(t);
-                        if (personK.Any(p => k.Contains(p))) return "인물";
+                        if (!audienceRe.IsMatch(t) && (personK.Any(p => k.Contains(p)) || celebRe.IsMatch(t))) return "인물";
                         if (otherBrand(t)) return "다른 브랜드";
                         if (!claimOk(t)) return "질병·치료";
                         if (Naming.IsMedicine(t) || Regex.IsMatch(k, @"(^|[가-힣])약($|[0-9])") || t.Split(' ').Any(w => Regex.IsMatch(Key(w), @"[가-힣]약$"))) return "의약품";
                         return null;
                     };
 
-                    // 쿠팡 자동완성에 약, 치료, 치료제, 처방, 영양제, 추천, 효능 등 다각도 질의
+                    // 쿠팡 자동완성에 약, 치료, 치료제, 처방, 영양제, 추천, 효능 및 의사·약사·유명인 다각도 질의
                     var riskQueries = new List<string> {
                         center,
                         center + " 약",
@@ -1172,7 +1179,15 @@ namespace SalesTool
                         center + " 복용법",
                         center + " 부작용",
                         center + " 성분",
-                        center + " 비교"
+                        center + " 비교",
+                        center + " 약사",
+                        center + " 의사",
+                        center + " 약사추천",
+                        center + " 의사추천",
+                        center + " 유재석",
+                        center + " 여에스더",
+                        center + " 이만기",
+                        center + " 닥터"
                     };
                     if (type != null && Key(type) != Key(center))
                     {
@@ -1186,6 +1201,57 @@ namespace SalesTool
                     foreach (var s in raw) cand.Add(new KeyValuePair<string, long>(s, 0));
                     foreach (var r in job.Keywords.Concat(job.Related).Concat(job.Concern ?? new List<KwRow>()))
                         cand.Add(new KeyValuePair<string, long>(r.Word, Math.Max(0, r.Volume)));
+
+                    // 건강기능식품·영양제 대표 의사·약사·연예인·유명인 키워드 시드 풀
+                    var celebSeedKeywords = new List<string> {
+                        center + " 약사추천",
+                        center + " 의사추천",
+                        center + " 약국",
+                        center + " 닥터",
+                        "약사 " + center,
+                        "의사 " + center,
+                        "유재석 " + center,
+                        "여에스더 " + center,
+                        "이만기 " + center,
+                        "유재석 비타민",
+                        "유재석 영양제",
+                        "유재석 고려은단",
+                        "이만기 호관원",
+                        "여에스더 유산균",
+                        "여에스더 글루타치온",
+                        "여에스더 어린콜라겐",
+                        "송가인 관절보궁",
+                        "임영웅 영양제",
+                        "임영웅 관절",
+                        "김종국 익스트림",
+                        "김종국 프로틴",
+                        "신동엽 숙취해소",
+                        "이경제 황제녹용",
+                        "박용우 다이어트",
+                        "약들약 오메가3",
+                        "약들약 마그네슘",
+                        "리틀약사 영양제",
+                        "정세연 한의사",
+                        "오은영 락토핏",
+                        "오은영 영양제",
+                        "강호동 영양제",
+                        "아이유 비타민",
+                        "조정석 영양제",
+                        "남궁민 아르기닌",
+                        "약사추천 영양제",
+                        "의사추천 영양제",
+                        "약사추천 유산균",
+                        "약사추천 오메가3",
+                        "약사추천 마그네슘",
+                        "약사추천 비타민",
+                        "의사추천 비타민",
+                        "원장추천 영양제"
+                    };
+                    foreach (var cw in celebSeedKeywords)
+                    {
+                        if (!cand.Any(x => x.Key.Equals(cw, StringComparison.OrdinalIgnoreCase)))
+                            cand.Add(new KeyValuePair<string, long>(cw, 0));
+                    }
 
                     // 위험 검색어 목록 추출 (중복 제거 및 검색량 높은 순 정렬) -> UI 검토/점검 전용 (job.RiskTags)
                     var riskList = cand.Where(x => !string.IsNullOrWhiteSpace(x.Key) && x.Key.Length <= 20)
@@ -1207,7 +1273,7 @@ namespace SalesTool
                     }
 
                     // 추가 검색어 후보들의 검색량도 조회하여 월간검색량 30 초과 확보
-                    var unkWords = cand.Select(x => x.Key).Concat(tags).Concat(extra).Where(w => !volMap.ContainsKey(SearchAd.Clean(w)) && w.Length >= 2 && w.Length <= 20).Distinct(StringComparer.OrdinalIgnoreCase).Take(120).ToList();
+                    var unkWords = cand.Select(x => x.Key).Concat(tags).Concat(extra).Concat(celebSeedKeywords).Where(w => !volMap.ContainsKey(SearchAd.Clean(w)) && w.Length >= 2 && w.Length <= 20).Distinct(StringComparer.OrdinalIgnoreCase).Take(160).ToList();
                     if (unkWords.Count > 0)
                     {
                         try
@@ -1338,12 +1404,14 @@ namespace SalesTool
                     // 4순위: 그래도 20개가 안 되면 쿠팡 자동완성 실제 검색어로 (앞 샵이 안 쓴 말 먼저)
                     foreach (var w in autoPool.Where(x => true).Concat(autoPool)) { if (tags1.Count >= 20) break; if (seen1.Add(w)) tags1.Add(w); }
 
-                    // ── [쿠팡 #2 샵]: 인물 키워드 전자동 즉시 주입 (월간검색량 > 30 필수, 검색량 내림차순)
+                    // ── [쿠팡 #2 샵]: 의사/약사/연예인/유명인 키워드 전자동 즉시 주입 (월간검색량 > 30 필수, 검색량 내림차순)
+                    // 노인, 수험생, 여자, 남자 등 일반 대상군은 엄격 배제!
                     var personWords = cand.Select(x => x.Key)
                         .Where(w => w.Length >= 2 && w.Length <= 20 && volMap.ContainsKey(SearchAd.Clean(w)) && volMap[SearchAd.Clean(w)] > 30)
+                        .Where(w => !audienceRe.IsMatch(w)) // 노인, 수험생, 여자, 남자 등 대상군 단어 엄격 제외!
                         .Where(w => {
                             string rk = riskWhy(w);
-                            return rk == "인물" || personK.Any(p => Key(w).Contains(p)) || Regex.IsMatch(w, @"(박사|교수|의사|약사|원장|선생|명의|연구소|대표|선수)");
+                            return rk == "인물" || personK.Any(p => Key(w).Contains(p)) || celebRe.IsMatch(w);
                         })
                         .Distinct(StringComparer.OrdinalIgnoreCase)
                         .OrderByDescending(w => volMap[SearchAd.Clean(w)])
@@ -1352,14 +1420,32 @@ namespace SalesTool
 
                     var tags2 = new List<string>();
                     var seen2 = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-                    // 1순위: 인물 키워드 우선 꽉 채우기
+                    // 1순위: 의사·약사·연예인·유명인 키워드 우선 채우기 (월간검색량 > 30 내림차순, 대상군 단어 제외)
                     foreach (var w in personWords) { if (tags2.Count >= 20) break; if (seen2.Add(w)) tags2.Add(w); }
-                    // 2순위: 20개 미달 시 월검색수 > 30 내림차순 보충 (상품명 안전단어 제외, 선을 넘나드는 연관/효능 키워드)
-                    foreach (var w in semiSafePool.Where(x => !tags1.Contains(x, StringComparer.OrdinalIgnoreCase)).Concat(semiSafePool)) { if (tags2.Count >= 20) break; if (seen2.Add(w)) tags2.Add(w); }
-                    // 3순위: 무조건 20개 꽉 채우기 (emergencyPool)
-                    foreach (var w in emergencyPool) { if (tags2.Count >= 20) break; if (seen2.Add(w)) tags2.Add(w); }
-                    // 4순위: 그래도 20개가 안 되면 쿠팡 자동완성 실제 검색어로 (앞 샵이 안 쓴 말 먼저)
-                    foreach (var w in autoPool.Where(x => !tags1.Contains(x, StringComparer.OrdinalIgnoreCase)).Concat(autoPool)) { if (tags2.Count >= 20) break; if (seen2.Add(w)) tags2.Add(w); }
+                    // 2순위: 20개 미달 시 semiSafePool에서 보충하되, 대상군(노인, 수험생, 여자, 남자 등)은 철저히 제외!
+                    foreach (var w in semiSafePool.Where(x => !tags1.Contains(x, StringComparer.OrdinalIgnoreCase) && !audienceRe.IsMatch(x)).Concat(semiSafePool.Where(x => !audienceRe.IsMatch(x))))
+                    {
+                        if (tags2.Count >= 20) break;
+                        if (seen2.Add(w)) tags2.Add(w);
+                    }
+                    // 3순위: emergencyPool에서도 대상군(노인, 수험생, 여자, 남자 등) 제외하고 보충!
+                    foreach (var w in emergencyPool.Where(x => !audienceRe.IsMatch(x)))
+                    {
+                        if (tags2.Count >= 20) break;
+                        if (seen2.Add(w)) tags2.Add(w);
+                    }
+                    // 4순위: 그래도 20개가 안 되면 쿠팡 자동완성 실제 검색어 중 대상군 제외하고 채우기
+                    foreach (var w in autoPool.Where(x => !tags1.Contains(x, StringComparer.OrdinalIgnoreCase) && !audienceRe.IsMatch(x)).Concat(autoPool.Where(x => !audienceRe.IsMatch(x))))
+                    {
+                        if (tags2.Count >= 20) break;
+                        if (seen2.Add(w)) tags2.Add(w);
+                    }
+                    // 5순위: 무조건 20개 100% 채우기 (allFallback 중 대상군 제외)
+                    foreach (var w in allFallback.Where(x => !audienceRe.IsMatch(x)))
+                    {
+                        if (tags2.Count >= 20) break;
+                        if (seen2.Add(w)) tags2.Add(w);
+                    }
 
                     // ── [쿠팡 #3 샵]: 증가배수(트렌드 급상승) 키워드 전자동 즉시 주입 (Growth▲ 내림차순 정렬!)
                     var risingWords = job.Keywords.Concat(job.Concern ?? new List<KwRow>())
