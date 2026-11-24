@@ -24,7 +24,7 @@ namespace SalesTool
         readonly Random rnd = new Random();
 
         // 상품명·키워드 규칙을 바꿀 때마다 올림 → 예전 규칙으로 만든 초안은 켤 때 자동으로 다시 만듦
-        public const int RulesVersion = 32;
+        public const int RulesVersion = 33;
 
         // 네이버 쇼핑을 실제로 열었을 때만 쉼 (저장된 결과를 다시 쓴 경우는 바로 다음으로)
         Task ShopPause() { return shop != null && shop.LastCached ? Task.FromResult(0) : Task.Delay(2000 + rnd.Next(1500)); }
@@ -484,6 +484,8 @@ namespace SalesTool
             {
                 // 시작 단어(레몬생강즙)와 그 짧은 형태(생강즙)의 연관 키워드 — 시작 단어로는 연관 키워드가 거의 없을 때가 있음
                 var bases = new List<string> { seed };
+                // 시작 단어에 제형이 붙어 있으면(홍화씨유 캡슐) 앞 단어(홍화씨유)로도 찾음 — 붙은 채로는 연관 키워드가 거의 안 나옴
+                if (seed.Contains(" ")) { string head0 = seed.Split(' ')[0]; if (head0.Length >= 2) bases.Add(head0); }
                 if (job.TypeSuffix != null && !string.Equals(job.TypeSuffix, seed, StringComparison.OrdinalIgnoreCase) && Key(seed).Contains(Key(job.TypeSuffix))) bases.Add(job.TypeSuffix);
                 var all = new Dictionary<string, long>(StringComparer.OrdinalIgnoreCase);
                 foreach (var b in bases)
