@@ -24,7 +24,7 @@ namespace SalesTool
         readonly Random rnd = new Random();
 
         // 상품명·키워드 규칙을 바꿀 때마다 올림 → 예전 규칙으로 만든 초안은 켤 때 자동으로 다시 만듦
-        public const int RulesVersion = 40;
+        public const int RulesVersion = 41;
 
         // 네이버 쇼핑을 실제로 열었을 때만 쉼 (저장된 결과를 다시 쓴 경우는 바로 다음으로)
         Task ShopPause() { return shop != null && shop.LastCached ? Task.FromResult(0) : Task.Delay(2000 + rnd.Next(1500)); }
@@ -34,6 +34,9 @@ namespace SalesTool
         {
             string m = Regex.Replace(job.Category ?? "", @"\s+", "");
             if (m.EndsWith(">유산균") || m == "유산균") return "식품>건강식품>영양제>프로바이오틱스";
+            // msgood이 다른 분류(식이섬유 등)로 넣었어도 상품명에 유산균이 있으면 프로바이오틱스로 (반려동물용은 제외)
+            string n = Regex.Replace(job.Name ?? "", @"\s+", "");
+            if (Regex.IsMatch(n, "유산균|프로바이오틱스") && !Regex.IsMatch(n + m, "강아지|고양이|반려|애견|애묘|펫")) return "식품>건강식품>영양제>프로바이오틱스";
             return null;
         }
         // 다른 카테고리 단어를 붙일 이 카테고리의 대표 말 (체지방감소 → 체지방감소유산균)

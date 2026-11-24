@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -24,7 +24,7 @@ namespace SalesTool
 
     public static class AutoUpdater
     {
-        public const string CurrentVersion = "1.5.7";
+        public const string CurrentVersion = "1.5.8";
         static readonly JavaScriptSerializer json = new JavaScriptSerializer { MaxJsonLength = int.MaxValue };
 
         static AutoUpdater()
