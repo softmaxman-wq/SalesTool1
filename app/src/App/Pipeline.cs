@@ -24,7 +24,7 @@ namespace SalesTool
         readonly Random rnd = new Random();
 
         // 상품명·키워드 규칙을 바꿀 때마다 올림 → 예전 규칙으로 만든 초안은 켤 때 자동으로 다시 만듦
-        public const int RulesVersion = 41;
+        public const int RulesVersion = 42;
 
         // 네이버 쇼핑을 실제로 열었을 때만 쉼 (저장된 결과를 다시 쓴 경우는 바로 다음으로)
         Task ShopPause() { return shop != null && shop.LastCached ? Task.FromResult(0) : Task.Delay(2000 + rnd.Next(1500)); }
@@ -984,6 +984,8 @@ namespace SalesTool
             }
             // 네이버 검색 최적화: 같은 말이 3번 이상 들어가면 "유의어 포함 반복된 단어" 경고 → 같은 말이 든 단어는 2개까지만 (토마토환 구운토마토 토마토)
             foreach (var k in job.Names.Keys.Where(k => k.StartsWith("n")).ToList()) job.Names[k] = Naming.LimitRepeats(job.Names[k], job.Seed);
+            // 유산균 상품: 스토어에서 잘 팔린 상품명 틀(용도 조합어·균 이름·영어 학명·대상·변형 표기)로 다시 짬
+            StoreStyle.Apply(job, ordered.Concat(filler).ToList(), nameOk);
             job.NameWords = ordered.Concat(filler).Concat(blocked).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
             KeywordLedger.Record(job.Code, job.Names.Values.SelectMany(n => Regex.Split(n ?? "", @"\s+")), null);
             if (!string.IsNullOrWhiteSpace(set.SharedFolder))
