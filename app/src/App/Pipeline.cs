@@ -24,7 +24,7 @@ namespace SalesTool
         readonly Random rnd = new Random();
 
         // 상품명·키워드 규칙을 바꿀 때마다 올림 → 예전 규칙으로 만든 초안은 켤 때 자동으로 다시 만듦
-        public const int RulesVersion = 39;
+        public const int RulesVersion = 40;
 
         // 네이버 쇼핑을 실제로 열었을 때만 쉼 (저장된 결과를 다시 쓴 경우는 바로 다음으로)
         Task ShopPause() { return shop != null && shop.LastCached ? Task.FromResult(0) : Task.Delay(2000 + rnd.Next(1500)); }
@@ -438,7 +438,26 @@ namespace SalesTool
             if (leaf != null && coreWord != null)
             {
                 bool forced = ForcedCatPath(job) != null;
-                var others = rows.Skip(1).Where(r => r.Excluded == null && (forced || !r.Core) && r.CatChecked && r.CatShare >= 0 && r.CatShare < 0.5 && (r.Mentioned || r.InName)
+                // 핵심 성분·상품명 말인데 카테고리 확인을 안 한 말(체지방감소 등)도 확인 (저장된 조회 결과가 있으면 네이버를 다시 열지 않음)
+                if (forced)
+                {
+                    var unchecked0 = rows.Skip(1).Where(r => r.Excluded == null && !r.CatChecked && (r.Core || r.InName || r.Mentioned) && r.Volume >= Naming.MinVolume
+                                                          && Naming.IsCandidate(r.Word) && !Key(r.Word).Contains(Key(coreWord)) && !HasCoreTerm(job, r.Word) && !Key(seed).Contains(Key(r.Word)))
+                                         .OrderByDescending(r => r.Core).ThenByDescending(r => r.Volume).Take(6).ToList();
+                    foreach (var r in unchecked0)
+                    {
+                        step("3/6 카테고리 확인 중... (" + r.Word + ")");
+                        try
+                        {
+                            var p = await shop.Read(r.Word, false, step, () => false, null, true);
+                            if (p != null) { r.CatChecked = true; r.CatShare = share(p); if (r.Total < 0) r.Total = p.Total; }
+                        }
+                        catch (NaverBlocked) { throw; }
+                        catch { }
+                        await ShopPause();
+                    }
+                }
+                var others =rows.Skip(1).Where(r => r.Excluded == null && (forced || !r.Core) && r.CatChecked && r.CatShare >= 0 && r.CatShare < 0.5 && (r.Mentioned || r.InName)
                                                   && Key(r.Word).Length >= 2 && !Key(r.Word).Contains(Key(coreWord)) && !Key(seed).Contains(Key(r.Word)))
                                      .OrderByDescending(r => r.Volume).Take(8).ToList();
                 var combos = others.Select(r => Key(r.Word) + coreWord).Distinct().ToList();
@@ -1937,6 +1956,8 @@ namespace SalesTool
                             job.CoupangCatName = !string.IsNullOrWhiteSpace(liveCoupangCat.Item2) ? liveCoupangCat.Item2 : (job.CatPath != null ? job.CatPath.Split('>').Last() : "");
                         }
                     }
+                    // msgood 분류가 유산균이면 쿠팡도 '유산균' 카테고리로 고정 (상위 5개 상품 다수결이 MCT오일/영양제 등으로 빗나가는 일이 많음)
+                    if (forcedCat != null && (job.CoupangCatName ?? "") != "유산균") { job.CoupangCat = "58991"; job.CoupangCatName = "유산균"; }
 
                     // 2순위: API 기반 예측 (CoupangCat이 미결정되었을 때만 fallback)
                     if (job.CoupangCat == null)
