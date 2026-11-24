@@ -24,7 +24,7 @@ namespace SalesTool
 
     public static class AutoUpdater
     {
-        public const string CurrentVersion = "1.5.5";
+        public const string CurrentVersion = "1.5.6";
         static readonly JavaScriptSerializer json = new JavaScriptSerializer { MaxJsonLength = int.MaxValue };
 
         static AutoUpdater()
@@ -188,9 +188,8 @@ namespace SalesTool
 
             if (CompareVersion(info.Version, CurrentVersion) > 0)
             {
-                string msg = $"새로운 버전(v{info.Version})이 출시되었습니다!\n(현재 버전: v{CurrentVersion})\n\n[업데이트 내용]\n{info.ReleaseNotes}\n\n지금 자동으로 업데이트를 다운로드하고 적용하시겠습니까?";
-                var ans = MessageBox.Show(msg, "새 버전 발견", MessageBoxButtons.YesNo, MessageBoxIcon.Information);
-                if (ans == DialogResult.Yes && !string.IsNullOrEmpty(info.ZipUrl))
+                // [지금 업데이트 확인]을 누른 것 자체가 업데이트하겠다는 뜻이므로 묻지 않고 바로 적용
+                if (!string.IsNullOrEmpty(info.ZipUrl))
                 {
                     await PerformUpdateAsync(info.ZipUrl);
                 }

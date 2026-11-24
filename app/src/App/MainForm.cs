@@ -265,38 +265,47 @@ namespace SalesTool
             Pump();
         }
 
+        // 새 버전이 있으면 묻지 않고 자동 업데이트. 초안을 만드는 도중에는 하지 않고 다음 상품으로 넘어가기 전에 적용
+        // (대기 중인 상품은 다시 켠 뒤 이어서 만듦). 발주·적립금 확인·송장 시간 앞뒤에는 하지 않음
+        UpdateInfo pendingUpdate;
+        bool updating;
+
+        static readonly int[] busyMinutes = { 9 * 60 + 5, 9 * 60 + 15, 9 * 60 + 25, 10 * 60 + 30, 10 * 60 + 55, 11 * 60 + 30, 13 * 60 + 30, 13 * 60 + 55, 19 * 60 };
+        static bool NearScheduledWork()
+        {
+            int now = DateTime.Now.Hour * 60 + DateTime.Now.Minute;
+            return busyMinutes.Any(m => now >= m - 10 && now <= m + 25);
+        }
+
         async Task CheckUpdateWhenIdleAsync()
         {
             try
             {
                 var s = set;
-                if (s.AutoUpdateCheck && !string.IsNullOrWhiteSpace(s.GithubRepo))
-                {
-                    // 대기열에 상품이 없거나 모두 처리 완료된 유휴 상태일 때만 최신 버전 확인
-                    bool isIdle = !jobs.Any(j => j.Status == "대기" || j.Status == "진행 중");
-                    if (isIdle)
-                    {
-                        var info = await AutoUpdater.CheckLatestAsync(s.GithubRepo);
-                        if (info != null && AutoUpdater.CompareVersion(info.Version, AutoUpdater.CurrentVersion) > 0)
-                        {
-                            if (!string.IsNullOrEmpty(info.ZipUrl))
-                            {
-                                Status($"새 버전(v{info.Version}) 감지: 무중단 자동 업데이트 적용 중... (잠시 후 자동 재실행)");
-                                await Task.Delay(1000);
-                                if (InvokeRequired)
-                                {
-                                    BeginInvoke(new Action(async () => await AutoUpdater.PerformUpdateAsync(info.ZipUrl, true, Status)));
-                                }
-                                else
-                                {
-                                    await AutoUpdater.PerformUpdateAsync(info.ZipUrl, true, Status);
-                                }
-                            }
-                        }
-                    }
-                }
+                if (!s.AutoUpdateCheck || string.IsNullOrWhiteSpace(s.GithubRepo) || updating) return;
+                var info = await AutoUpdater.CheckLatestAsync(s.GithubRepo);
+                if (info == null || string.IsNullOrEmpty(info.ZipUrl) || AutoUpdater.CompareVersion(info.Version, AutoUpdater.CurrentVersion) <= 0) return;
+                pendingUpdate = info;
+                // 지금 만드는 상품이 없으면 바로, 있으면 그 상품이 끝난 뒤 Pump 에서 적용
+                if (!jobs.Any(j => j.Status == "진행 중")) await ApplyPendingUpdate();
             }
             catch { }
+        }
+
+        async Task<bool> ApplyPendingUpdate()
+        {
+            var info = pendingUpdate;
+            if (info == null || updating || NearScheduledWork()) return false;
+            if (!msgood.Gate.Wait(0)) return false;   // msgood 작업(발주·송장 읽기) 중이면 다음에
+            msgood.Gate.Release();
+            updating = true;
+            Status($"새 버전(v{info.Version})으로 자동 업데이트합니다. 잠시 후 다시 켜지고, 대기 중인 상품은 이어서 만듭니다.");
+            Phone($"판매도구를 v{info.Version}으로 자동 업데이트합니다. 잠시 후 다시 켜집니다.");
+            foreach (var j in jobs) Store.SaveJob(j);
+            await Task.Delay(1500);
+            await AutoUpdater.PerformUpdateAsync(info.ZipUrl, true, Status);
+            updating = false;   // 실패했을 때만 여기로 옴
+            return false;
         }
 
         // ── 대기열
@@ -331,6 +340,8 @@ namespace SalesTool
             {
                 while (true)
                 {
+                    // 새 버전이 나와 있으면 다음 상품으로 넘어가기 전에 자동 업데이트 (대기 상품은 다시 켠 뒤 이어서)
+                    if (pendingUpdate != null) await ApplyPendingUpdate();
                     var job = jobs.FirstOrDefault(j => j.Status == "대기");
                     if (job == null) break;
                     job.Status = "진행 중"; job.Error = null; job.Results.Clear();
@@ -1126,7 +1137,7 @@ namespace SalesTool
             // 자동 업데이트 (GitHub Releases)
             flow.Controls.Add(Section("프로그램 자동 업데이트 (GitHub Releases)"));
             var repoBox = new TextBox { Width = 260, Text = set.GithubRepo ?? "" };
-            var autoChk = new CheckBox { Text = "대기열 작업 완료 시 최신 버전 자동 업데이트 & 무중단 재실행", AutoSize = true, Checked = set.AutoUpdateCheck, Margin = new Padding(10, 6, 0, 0) };
+            var autoChk = new CheckBox { Text = "새 버전이 나오면 묻지 않고 자동 업데이트 (초안 하나가 끝난 뒤, 발주 시간 앞뒤는 피함)", AutoSize = true, Checked = set.AutoUpdateCheck, Margin = new Padding(10, 6, 0, 0) };
             flow.Controls.Add(Row(Lbl("GitHub 저장소", 110), repoBox, autoChk,
                 Btn("저장", () =>
                 {
