@@ -24,7 +24,7 @@ namespace SalesTool
         readonly Random rnd = new Random();
 
         // 상품명·키워드 규칙을 바꿀 때마다 올림 → 예전 규칙으로 만든 초안은 켤 때 자동으로 다시 만듦
-        public const int RulesVersion = 33;
+        public const int RulesVersion = 34;
 
         // 네이버 쇼핑을 실제로 열었을 때만 쉼 (저장된 결과를 다시 쓴 경우는 바로 다음으로)
         Task ShopPause() { return shop != null && shop.LastCached ? Task.FromResult(0) : Task.Delay(2000 + rnd.Next(1500)); }
@@ -1294,6 +1294,14 @@ namespace SalesTool
                         .ToList();
                     job.DiseaseWords = diseaseWords;
 
+                    // 5) 20개가 안 될 때만: 쿠팡 자동완성에 실제로 나온 검색어 (네이버 검색량 기록은 없어도 쿠팡에서 사람들이 치는 말)
+                    //    이 상품 이름이 들어간 말만, 검색에 쓴 질의어(○○ 치료 등) 자체와 위험 표현은 빼고
+                    var askedQ = new HashSet<string>(riskQueries.Select(Key));
+                    var autoPool = raw.Where(s => !string.IsNullOrWhiteSpace(s) && s.Length >= 2 && s.Length <= 20)
+                        .Where(s => !askedQ.Contains(Key(s)) || Key(s) == Key(center))
+                        .Where(s => relKeys.Any(x => Key(s).Contains(x)) && !otherBrand(s) && riskWhy(s) == null)
+                        .Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+
                     var tags1 = new List<string>();
                     var seen1 = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
                     // 1순위: 질병·치료 위험키워드 우선 꽉 채우기
@@ -1302,7 +1310,8 @@ namespace SalesTool
                     foreach (var w in semiSafePool) { if (tags1.Count >= 20) break; if (seen1.Add(w)) tags1.Add(w); }
                     // 3순위: 무조건 20개 꽉 채우기 (emergencyPool)
                     foreach (var w in emergencyPool) { if (tags1.Count >= 20) break; if (seen1.Add(w)) tags1.Add(w); }
-                    // (검색량을 확인하지 못한 말로 20개를 억지로 채우지 않음)
+                    // 4순위: 그래도 20개가 안 되면 쿠팡 자동완성 실제 검색어로 (앞 샵이 안 쓴 말 먼저)
+                    foreach (var w in autoPool.Where(x => true).Concat(autoPool)) { if (tags1.Count >= 20) break; if (seen1.Add(w)) tags1.Add(w); }
 
                     // ── [쿠팡 #2 샵]: 인물 키워드 전자동 즉시 주입 (월간검색량 > 30 필수, 검색량 내림차순)
                     var personWords = cand.Select(x => x.Key)
@@ -1324,7 +1333,8 @@ namespace SalesTool
                     foreach (var w in semiSafePool.Where(x => !tags1.Contains(x, StringComparer.OrdinalIgnoreCase)).Concat(semiSafePool)) { if (tags2.Count >= 20) break; if (seen2.Add(w)) tags2.Add(w); }
                     // 3순위: 무조건 20개 꽉 채우기 (emergencyPool)
                     foreach (var w in emergencyPool) { if (tags2.Count >= 20) break; if (seen2.Add(w)) tags2.Add(w); }
-                    // (검색량을 확인하지 못한 말로 20개를 억지로 채우지 않음)
+                    // 4순위: 그래도 20개가 안 되면 쿠팡 자동완성 실제 검색어로 (앞 샵이 안 쓴 말 먼저)
+                    foreach (var w in autoPool.Where(x => !tags1.Contains(x, StringComparer.OrdinalIgnoreCase)).Concat(autoPool)) { if (tags2.Count >= 20) break; if (seen2.Add(w)) tags2.Add(w); }
 
                     // ── [쿠팡 #3 샵]: 증가배수(트렌드 급상승) 키워드 전자동 즉시 주입 (Growth▲ 내림차순 정렬!)
                     var risingWords = job.Keywords.Concat(job.Concern ?? new List<KwRow>())
@@ -1346,7 +1356,8 @@ namespace SalesTool
                     foreach (var w in semiSafePool.Where(x => !tags1.Contains(x, StringComparer.OrdinalIgnoreCase) && !tags2.Contains(x, StringComparer.OrdinalIgnoreCase)).Concat(semiSafePool)) { if (tags3.Count >= 20) break; if (seen3.Add(w)) tags3.Add(w); }
                     // 3순위: 무조건 20개 꽉 채우기 (emergencyPool)
                     foreach (var w in emergencyPool) { if (tags3.Count >= 20) break; if (seen3.Add(w)) tags3.Add(w); }
-                    // (검색량을 확인하지 못한 말로 20개를 억지로 채우지 않음)
+                    // 4순위: 그래도 20개가 안 되면 쿠팡 자동완성 실제 검색어로 (앞 샵이 안 쓴 말 먼저)
+                    foreach (var w in autoPool.Where(x => !tags1.Contains(x, StringComparer.OrdinalIgnoreCase) && !tags2.Contains(x, StringComparer.OrdinalIgnoreCase)).Concat(autoPool)) { if (tags3.Count >= 20) break; if (seen3.Add(w)) tags3.Add(w); }
 
                     // Job 객체에 3개 쿠팡 샵 태그 각각 저장
                     job.CoupangTags1 = tags1;
