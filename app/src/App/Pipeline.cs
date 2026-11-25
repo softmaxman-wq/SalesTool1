@@ -24,7 +24,7 @@ namespace SalesTool
         readonly Random rnd = new Random();
 
         // 상품명·키워드 규칙을 바꿀 때마다 올림 → 예전 규칙으로 만든 초안은 켤 때 자동으로 다시 만듦
-        public const int RulesVersion = 43;
+        public const int RulesVersion = 45;
 
         // 네이버 쇼핑을 실제로 열었을 때만 쉼 (저장된 결과를 다시 쓴 경우는 바로 다음으로)
         Task ShopPause() { return shop != null && shop.LastCached ? Task.FromResult(0) : Task.Delay(2000 + rnd.Next(1500)); }
@@ -603,6 +603,25 @@ namespace SalesTool
             }
             // 최근 검색 흐름 (검색어 트렌드 키가 있을 때만): 상품명에 들어갈 만한 말 중 최근 확 늘어난 말을 앞으로
             await FillTrends(rows.Skip(1).Where(r => r.Excluded == null && r.Volume >= 300 && (r.Mentioned || r.Typo)).OrderByDescending(r => r.Volume).Take(40).ToList(), step);
+            // 사장님 검색어 사전: 이 상품에 고른 말·광고로 팔린 말·맞는 조합어를 후보에 넣고, 이미 있는 말은 상품수(경쟁비 계산용)를 채움
+            try
+            {
+                var badWords = rows.Where(r => r.Excluded == "브랜드" || r.Excluded == "인물").Select(r => Key(r.Word)).Where(x => x.Length >= 2).ToList();
+                foreach (var b in KeywordBook.Candidates(job, seed, CategoryCoreWord(job)))
+                {
+                    if (badWords.Any(x => Key(b.Word).Contains(x))) continue;   // 브랜드·인물 이름이 든 말은 안 씀
+                    var ex = rows.FirstOrDefault(r => Key(r.Word) == Key(b.Word));
+                    if (ex != null)
+                    {
+                        if (ex.Total < 0 && b.Total >= 0) ex.Total = b.Total;
+                        if (ex.Volume <= 0) ex.Volume = b.Volume;
+                        if (ex.Excluded == null) { ex.FromBook = true; ex.BookMine = b.BookMine; ex.BookProven = b.BookProven; ex.Mentioned = true; if (b.Typo) ex.Typo = true; }
+                        continue;
+                    }
+                    rows.Add(b);
+                }
+            }
+            catch { }
             job.Keywords = rows;
             showTab("review");
         }
@@ -986,6 +1005,8 @@ namespace SalesTool
             foreach (var k in job.Names.Keys.Where(k => k.StartsWith("n")).ToList()) job.Names[k] = Naming.LimitRepeats(job.Names[k], job.Seed);
             // 유산균 상품: 스토어에서 잘 팔린 상품명 틀(용도 조합어·균 이름·영어 학명·대상·변형 표기)로 다시 짬
             StoreStyle.Apply(job, ordered.Concat(filler).ToList(), nameOk);
+            // 쿠팡 상품명: 쿠팡샵에서 잘 팔린 긴 틀(대상·나이대·영어 이름, 변형 표기 없음)로 늘림
+            CoupangStyle.Apply(job, ordered.Concat(filler).ToList(), nameOk);
             job.NameWords = ordered.Concat(filler).Concat(blocked).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
             KeywordLedger.Record(job.Code, job.Names.Values.SelectMany(n => Regex.Split(n ?? "", @"\s+")), null);
             if (!string.IsNullOrWhiteSpace(set.SharedFolder))

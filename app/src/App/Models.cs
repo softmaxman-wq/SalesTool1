@@ -19,6 +19,10 @@ namespace SalesTool
         public bool Mentioned;       // msgood 상품명·상세 페이지에 나온 말인지
         public bool FromDetail;      // 상세 페이지 글자에서 찾은 키워드
         public bool Typo;
+        public bool FromBook;        // 사장님 검색어 사전(keyword_book.json)에서 온 말
+        public bool BookMine;        // 사전에서 이 상품번호에 직접 고른 말
+        public bool BookProven;      // 쿠팡 광고로 실제 주문이 난 검색어
+        public int BookCount;        // 사전 몇 묶음에 나왔나
         public bool InName;
         public bool Function;        // 기능·효과를 말하는 말이 상세 페이지에 나옴 (혈행개선·콜레스테롤·월경전 …)          // msgood 상품명에 있는 말 (오메가3+비타민D 의 비타민D)
         public bool Core;            // 상세 페이지의 핵심 (상세에 주 키워드의 30% 이상 나온 말: 체지방·다이어트·장건강)            // 시작 단어의 오타 (젓산마그네숨): 사람들이 오타로도 검색하고 경쟁 상품이 적어서 상품명에 넣음

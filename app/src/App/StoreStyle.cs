@@ -113,6 +113,17 @@ namespace SalesTool
             var fill = (body ?? new List<string>()).Where(w => !Junk.Contains(w) && !Regex.IsMatch(w, @"\d") && Key(w).Length >= 2 && !Naming.IsInfoQuery(w) && !Naming.IsDisease(w) && !Regex.IsMatch(w, "고르는법|추천|순위|효능|부작용|먹는법|먹는시간") && (nameOk == null || nameOk(w)))
                                                     .Distinct(StringComparer.OrdinalIgnoreCase).ToList();
 
+            // 사장님 사전 말(공복유산균·저녁유산균·장용성100억유산균): 네이버는 "유산균"을 떼고 붙은 말만 (저녁 식전 공복 혈당 유산균 — 사장님 상품명 방식, 반복 경고도 피함)
+            var bookSet = new HashSet<string>((job.Keywords ?? new List<KwRow>()).Where(r => r.FromBook && r.Excluded == null).Select(r => Key(r.Word)));
+            var bookMods = new List<string>();
+            foreach (var w in (body ?? new List<string>()).Where(w => bookSet.Contains(Key(w)) && (nameOk == null || nameOk(w))))
+            {
+                string k = Key(w);
+                string mod = k.Contains("유산균") && k != "유산균" ? w.Replace("유산균", "").Replace(" ", "") : w;
+                if (Key(mod).Length < 1 || Junk.Contains(mod) || Regex.IsMatch(Key(mod), "^(프로바이오|프로바이오틱스|프로바이오틱|생|유산균)$")) continue;
+                if (!bookMods.Any(x => Key(x) == Key(mod))) bookMods.Add(mod);
+            }
+
             string seedWord = pre ? "프리바이오틱스" : (Regex.IsMatch(name, "프로바이오틱스") && !Regex.IsMatch(name, "유산균") ? "프로바이오틱스" : "유산균");
             string bifWord = bifido ? "비피더스균" : null;
 
@@ -129,6 +140,9 @@ namespace SalesTool
 
                 // 1) 용도 조합어 (가장 앞) — 없으면 시작 단어
                 if (P.Count > 0) parts.Add(P[0]); else parts.Add(seedWord);
+                // 사장님 사전 말을 바로 뒤에 4개까지 (계정마다 순서를 돌림)
+                foreach (var bm in R(bookMods.Take(6).ToList(), rot).Where(x => !Key(parts[0]).Contains(Key(x))).Take(4).ToList())   // 앞 조합어에 든 말(혈당유산균의 혈당)은 빼고
+                    if (!parts.Any(x => Key(x) == Key(bm))) parts.Add(bm);
                 // 사업자마다 다른 짜임: 1=균 이름 중심, 2=대상·상황 중심, 3=영어·변형 표기 중심
                 if (a % 3 == 1) { parts.AddRange(S.Take(2)); if (bifWord != null) parts.Add(bifWord); parts.AddRange(Pe.Take(1)); parts.AddRange(T.Take(1)); if (P.Count > 1) parts.Add(P[1]); }
                 else if (a % 3 == 2) { parts.AddRange(Pe.Take(2)); if (P.Count > 1) parts.Add(P[1]); parts.AddRange(S.Take(1)); parts.AddRange(T.Take(1)); parts.AddRange(E.Take(1)); }

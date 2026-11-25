@@ -396,21 +396,21 @@ namespace SalesTool
             // 상세 페이지에서 찾은 키워드(2번 이상, 검색량 300 이상)도 씀
             // 카테고리 확인을 한 초안이면: 이 상품 카테고리에서 검색되는 말만 (비타민D·가르시니아처럼 다른 카테고리 말은 뺌)
             bool strict = rows.Any(r => r.CatChecked);
-            var usable = rows.Where(r => r.Excluded == null && r.TagReason == null && r.Volume >= MinVolume && IsCandidate(r.Word) && NameBlockReason(r) == null
+            var usable = rows.Where(r => r.Excluded == null && r.TagReason == null && (r.Volume >= MinVolume || r.BookProven) && IsCandidate(r.Word) && NameBlockReason(r) == null
                                          // 상세 페이지 검증: 이 상품 상세 페이지·상품명에 나온 말만 (6년근·보라지유처럼 상세에 없는 말은 안 씀)
-                                         && (r.Typo || r.Mentioned)
+                                         && (r.Typo || r.FromBook || r.Mentioned)
                                          // 카테고리: 이 상품 카테고리에서 검색되는 말만. 검색해 보니 다른 카테고리(20% 미만)로 나오는 말은
                                          // 상세에 많이 나와도 안 씀 (유산균의 체지방·오트밀의 치아씨앗). msgood 상품명에 있는 말(슬림다이어트)만 예외
-                                         && (r.Typo || r.InName || !r.OtherCategory)
-                                         && (r.Typo || !strict || r.Core || r.InName || r.Function || (r.InPage >= 5 && r.Mentioned) || (r.CatChecked && r.CatShare >= 0.2) || (!r.CatChecked && !r.OtherCategory))
+                                         && (r.Typo || r.FromBook || r.InName || !r.OtherCategory)
+                                         && (r.Typo || r.FromBook || !strict || r.Core || r.InName || r.Function || (r.InPage >= 5 && r.Mentioned) || (r.CatChecked && r.CatShare >= 0.2) || (!r.CatChecked && !r.OtherCategory))
                                          // 카테고리 상품명에 2번 이상(두 글자 말은 3번 이상) 나온 말. 상세 안내 문구(관리·과정·고형분 …)는 안 씀
-                                         && (r.Typo || r.Core || r.Function || (r.InPage >= 2 && (Key(r.Word).Length >= 3 || r.InPage >= 3))
+                                         && (r.Typo || r.FromBook || r.Core || r.Function || (r.InPage >= 2 && (Key(r.Word).Length >= 3 || r.InPage >= 3))
                                              // 1페이지에 한 번만 나와도, 이 상품에 있는 말이고 검색하면 거의 이 카테고리만 나오는 말(Zinc)은 씀
                                              || (r.Mentioned && r.CatChecked && r.CatShare >= 0.8))
-                                         && (r.Typo || !DetailStop.Contains(r.Word))
+                                         && (r.Typo || r.FromBook || !DetailStop.Contains(r.Word))
                                          // 상세 이미지 글자에서만 나온 말(1페이지 상품명·msgood 상품명에 없음)은 글자 인식이 잘못 읽은 말일 수 있음
                                          // (인지력 → 인지리). 실제로 많이 검색되고 파는 상품도 있는 말만
-                                         && (r.Typo || r.InPage > 0 || r.InName || (r.Volume >= 100 && r.Total >= 300))).ToList();
+                                         && (r.Typo || r.FromBook || r.InPage > 0 || r.InName || (r.Volume >= 100 && r.Total >= 300))).ToList();
             // 급상승 키워드(최근 검색이 확 늘어난 말)는 각 묶음 안에서 앞으로. "상승 순"이면 늘어난 정도 순
             Func<IEnumerable<KwRow>, IEnumerable<KwRow>> sort = xs =>
                 mode == Orders.Growth ? xs.OrderByDescending(r => r.Rising).ThenByDescending(r => r.Volume >= 300 ? r.Growth : -1).ThenByDescending(r => r.Volume)
@@ -424,7 +424,9 @@ namespace SalesTool
                              .OrderByDescending(r => r.Rising).ThenByDescending(r => r.InPage >= 2 && r.FromDetail).ThenByDescending(r => r.Volume).ToList();
             // 시작 단어 오타(젓산마그네숨)는 맨 앞쪽에
             var typos = usable.Where(r => r.Typo).OrderByDescending(r => r.Volume).ToList();
-            var all = typos.Concat(small.Concat(rest).Where(r => !r.Typo)).ToList();
+            // 사장님 사전 말: 광고로 팔린 말 → 이 상품에 직접 고른 말 → 다른 상품에서 고른 조합어, 각각 경쟁비 좋은 순
+            var book = usable.Where(r => r.FromBook && !r.Typo).OrderByDescending(r => r.BookProven).ThenByDescending(r => r.BookMine).ThenBy(r => r.Ratio).ThenByDescending(r => r.Volume).ToList();
+            var all = typos.Concat(book).Concat(small.Concat(rest).Where(r => !r.Typo && !r.FromBook)).ToList();
             // 직접 넣었던 단어는 앞으로
             var pref = all.Where(r => learned.IsPreferred(r.Word)).ToList();
             // 팔린 상품의 상품명에 있던 단어는 그다음으로 (판매 실적 학습)
