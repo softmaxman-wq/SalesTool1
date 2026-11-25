@@ -60,6 +60,18 @@ namespace SalesTool
             new[] { "장용성", "장용성유산균", "" },
         };
 
+        // 함께 든 영양소: msgood 상품명에 있을 때만
+        static readonly string[][] Nutrients =
+        {
+            new[] { "아연", "아연" }, new[] { "셀렌|셀레늄", "셀레늄" }, new[] { @"비타민\s*D", "비타민D" }, new[] { @"비타민\s*C", "비타민C" },
+            new[] { "칼슘", "칼슘" }, new[] { "마그네슘", "마그네슘" }, new[] { @"오메가\s*3", "오메가3" }, new[] { "콜라겐", "콜라겐" },
+            new[] { "식이섬유", "식이섬유" },
+        };
+        static readonly string[][] PreFoods =
+        {
+            new[] { "프락토올리고당|FOS", "프락토올리고당" }, new[] { "갈락토올리고당|GOS", "갈락토올리고당" }, new[] { "이눌린", "이눌린" }, new[] { "치커리", "치커리" },
+        };
+
         public static bool Applies(Job job) { return Pipeline.ForcedCatPath(job) != null; }
 
         // body: 기존 규칙이 고른 상품명 단어(순서대로) — 자리 채움에만 씀
@@ -75,12 +87,22 @@ namespace SalesTool
             if (Regex.IsMatch(ocr, "공복") && !persona.Contains("공복")) persona.Add("공복");
             if (Regex.IsMatch(name, @"\d+억")) { var m = Regex.Match(name, @"(\d+)억"); purpose.Add(m.Groups[1].Value + "억유산균"); }   // 상품명에 적힌 균수만
 
+            bool pre = Regex.IsMatch(name, "프리바이오틱스") && !Regex.IsMatch(name, "프로바이오틱스|유산균");   // 유산균 먹이(프리바이오틱스) 상품
+            // 상품명에 적힌 그 밖의 특징 (사실 그대로): 19종 → 19종유산균, 함께 든 영양소, 생유산균
+            var extra = new List<string>();
+            var jm = Regex.Match(name, @"(\d+)\s*종");
+            if (jm.Success && int.Parse(jm.Groups[1].Value) >= 4) { string w = jm.Groups[1].Value + "종유산균"; if (purpose.Count == 0) purpose.Add(w); else purpose.Insert(1, w); }
+            foreach (var n in Nutrients)
+                if (Regex.IsMatch(name, n[0], RegexOptions.IgnoreCase) && !extra.Contains(n[1])) extra.Add(n[1]);
+            foreach (var n in PreFoods)   // 유산균 먹이 성분은 라벨 글자에서도 봄
+                if ((pre || n[1] == "프락토올리고당") && Regex.IsMatch(both, n[0]) && !extra.Contains(n[1])) extra.Add(n[1]);   // 유산균 상품엔 프락토올리고당만 (치커리 같은 말은 먹이 상품에만)
+            if (Regex.IsMatch(name, "생유산균")) extra.Add("생유산균");
+
             var strainKo = new List<string>(); var strainEn = new List<string>();
             foreach (var s in Strains)
                 if (Regex.IsMatch(both, s[0])) { strainKo.Add(s[1]); strainEn.Add(s[2]); }
             bool bifido = Regex.IsMatch(both, "비피더스|비피도");
             bool syn = Regex.IsMatch(both, "신바이오틱스");
-            bool pre = Regex.IsMatch(name, "프리바이오틱스") && !Regex.IsMatch(name, "프로바이오틱스|유산균");   // 유산균 먹이(프리바이오틱스) 상품
 
             // 변형 표기: 손님이 실제로 치는 말 (프로바이오텍·신바이오텍·유산 균)
             var typo = new List<string>();
@@ -113,7 +135,13 @@ namespace SalesTool
                 else { parts.AddRange(E.Take(1)); parts.AddRange(T.Take(2)); parts.AddRange(S.Skip(1).Take(1).DefaultIfEmpty(S.FirstOrDefault()).Where(x => x != null)); parts.AddRange(Pe.Take(1)); if (bifWord != null) parts.Add(bifWord); }
                 if (!parts.Any(w => Key(w) == Key(seedWord)) && parts.Count(w => Key(w).Contains("유산균")) < 2) parts.Add(seedWord);
 
-                // 2) 30자 안 되면 기존 단어로 채움 (45자까지)
+                // 2) 상품명에 적힌 특징을 붙임 (34자까지), 그래도 30자 안 되면 기존 단어로 채움 (45자까지)
+                foreach (var w in R(extra, rot))
+                {
+                    if (Len(parts) >= 34) break;
+                    if (Len(parts) + 1 + w.Length > 45) continue;
+                    parts.Add(w);
+                }
                 foreach (var w in R(fill, rot))
                 {
                     if (Len(parts) >= 30) break;
