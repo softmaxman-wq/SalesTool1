@@ -177,6 +177,10 @@ namespace SalesTool
             BuildStockTab();
             stockTimer.Tick += async (s, e) => { if (set.AutoStock) await StockRun(true); };
             stockTimer.Start();
+            // 쿠팡 광고 키워드: 1시간마다 새 광고 보고서가 있는지 보고 있으면 목록을 만듦
+            var adTimer = new System.Windows.Forms.Timer { Interval = 60 * 60 * 1000 };
+            adTimer.Tick += async (s, e) => { if (set.AutoAdKw) { try { await Task.Run(() => AdKeywords.RunIfNew(set, StockLog)); } catch (Exception ex) { StockLog("광고 키워드 목록 오류: " + ex.Message); } } };
+            adTimer.Start();
             // 자동 발주: 정해진 시각(1·2·3차 마감 5분 전)에만 모아서 발주, 송장은 19시에 한 번에
             // 30초마다 시각을 보고, 그 시각부터 20분 안이면 실행 (PC가 조금 늦게 켜져도). 같은 차수는 하루 한 번
             orderTimer.Tick += async (s, e) =>
@@ -1867,6 +1871,15 @@ namespace SalesTool
                     var res = await msgood.BulkOrder(OrderSync.BuildExcel(test), false, StockLog);
                     StockLog("발주 시험 결과: " + res.Message);
                 })));
+            top.Controls.Add(Section("쿠팡 광고 키워드 (반자동: 목록은 자동으로 만들고, 광고센터 등록·입찰은 직접)"));
+            var autoAd = new CheckBox { Text = "새 광고 보고서가 들어오면 자동으로 목록 만들기", Checked = set.AutoAdKw, AutoSize = true };
+            autoAd.CheckedChanged += (s, e) => { set.AutoAdKw = autoAd.Checked; Store.Save(Store.SettingsPath, set); };
+            top.Controls.Add(Row(Btn("지금 광고 키워드 목록 만들기", async () => { await Task.Run(() => AdKeywords.Run(set, StockLog)); }),
+                                 Btn("광고보고서 폴더 열기", () => { Directory.CreateDirectory(AdKeywords.ReportDir); Process.Start("explorer.exe", "\"" + AdKeywords.ReportDir + "\""); }),
+                                 Btn("마지막 목록 열기", () => { var f = AdKeywords.LastState().LastFile; if (!string.IsNullOrEmpty(f) && File.Exists(f)) Process.Start(f); else StockLog("아직 만든 목록이 없습니다."); }), autoAd));
+            var adSt = AdKeywords.LastState();
+            top.Controls.Add(Note("쿠팡 광고센터 → 광고 보고서에서 한 달씩 엑셀을 받아 Downloads(이름에 '광고'·'report'·'보고서'가 든 파일)나 광고보고서 폴더에 두면, 상품별 넣을 키워드(광고로 팔린 말·검색어 사전)·제외 키워드(클릭만 받고 안 팔린 말)·광고 끄기 추천을 Downloads\\쿠팡광고키워드_날짜.csv 로 만듭니다." +
+                                  (adSt.LastRun != "" ? "\n마지막: " + adSt.LastRun + " → " + Path.GetFileName(adSt.LastFile) : "")));
             var rec0 = OrderSync.LoadRecord();
             top.Controls.Add(Note("발주한 주문 " + rec0.Done.Count + "건 · 송장 입력 " + rec0.Done.Values.Count(d => !string.IsNullOrEmpty(d.Tracking)) + "건 · 결과 확인 필요 " + rec0.Pending.Count + "건" +
                                   (rec0.LastShortage != null ? "   |   마지막 적립금 부족: " + rec0.LastShortage : "") +

@@ -129,6 +129,7 @@ namespace SalesTool
         public long TagMinVolume = 1000;    // 쿠팡 검색어에 넣을 최소 월간검색량 (브랜드·위험 단어·상품에 없는 말)
         public int Stock = 300;
         public bool AutoStock = false;
+        public bool AutoAdKw = true;     // 새 쿠팡 광고 보고서가 들어오면 광고 키워드 목록을 자동으로 만듦
         public bool AutoOrder = true;
         public bool NotifyDraft = false;    // 초안 완성 알림 전송 여부 (체크 해제 시 초안 알림을 끄고 발주·품절 알림만 전송)
         public bool MobileOn = true;        // 휴대폰 앱 서버

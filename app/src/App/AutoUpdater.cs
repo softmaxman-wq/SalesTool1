@@ -24,7 +24,7 @@ namespace SalesTool
 
     public static class AutoUpdater
     {
-        public const string CurrentVersion = "1.7.0";
+        public const string CurrentVersion = "1.7.1";
         static readonly JavaScriptSerializer json = new JavaScriptSerializer { MaxJsonLength = int.MaxValue };
 
         static AutoUpdater()
