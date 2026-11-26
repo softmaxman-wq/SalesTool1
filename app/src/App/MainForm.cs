@@ -133,7 +133,7 @@ namespace SalesTool
             // ── 왼쪽: 대기열
             list = new ListView { Dock = DockStyle.Fill, View = View.Details, FullRowSelect = true, HideSelection = false, MultiSelect = false };
             list.Columns.Add("상품번호", 70); list.Columns.Add("상태", 140); list.Columns.Add("상품명", 260);
-            list.SelectedIndexChanged += (s, e) => { if (list.SelectedItems.Count > 0) ShowJob((Job)list.SelectedItems[0].Tag); };
+            list.SelectedIndexChanged += (s, e) => { if (refreshingList || list.SelectedItems.Count == 0) return; var sj = (Job)list.SelectedItems[0].Tag; if (sj != current || review.Controls.Count == 0) ShowJob(sj); };
             var leftButtons = new FlowLayoutPanel { Dock = DockStyle.Bottom, Height = 36, Padding = new Padding(4) };
             leftButtons.Controls.AddRange(new Control[] {
                 Btn("다시 만들기", () => { var j = Selected(); if (j != null && j.Status != "진행 중") { ResetJob(j); Pump(); } }),
@@ -435,13 +435,22 @@ namespace SalesTool
 
         void SelectJob(Job job)
         {
-            foreach (ListViewItem it in list.Items) if (it.Tag == job) { it.Selected = true; it.EnsureVisible(); }
+            refreshingList = true;   // 목록 선택이 바뀌며 한 번, 아래에서 또 한 번 그리지 않게
+            try { foreach (ListViewItem it in list.Items) if (it.Tag == job) { it.Selected = true; it.EnsureVisible(); } }
+            finally { refreshingList = false; }
             ShowJob(job);
         }
 
+        bool refreshingList;
         void RefreshList()
         {
             var sel = Selected();
+            refreshingList = true;
+            try { RefreshListCore(sel); } finally { refreshingList = false; }
+            todayLabel.Text = "오늘 " + TodayCount() + " / " + set.DailyLimit;
+        }
+        void RefreshListCore(Job sel)
+        {
             list.BeginUpdate();
             list.Items.Clear();
             foreach (var j in jobs)
@@ -452,7 +461,6 @@ namespace SalesTool
                 if (j == sel) it.Selected = true;
             }
             list.EndUpdate();
-            todayLabel.Text = "오늘 " + TodayCount() + " / " + set.DailyLimit;
         }
 
         void UpdateRow(Job j)
@@ -499,11 +507,12 @@ namespace SalesTool
             ClearDispose(review);
             nameBoxes.Clear();
             var flow = new FlowLayoutPanel { FlowDirection = FlowDirection.TopDown, WrapContents = false, AutoSize = true, Dock = DockStyle.Top };
-            review.Controls.Add(flow);
+            flow.SuspendLayout();
+            Action done = () => { flow.ResumeLayout(false); review.Controls.Add(flow); review.ResumeLayout(); };
             if (job == null)
             {
                 flow.Controls.Add(new Label { AutoSize = true, Text = "왼쪽 목록에서 상품을 고르세요.", ForeColor = Color.DimGray, Margin = new Padding(4, 10, 0, 0) });
-                review.ResumeLayout(); return;
+                done(); return;
             }
 
             var head = new Label { AutoSize = true, MaximumSize = new Size(900, 0), Font = BoldFont, Margin = new Padding(3, 3, 3, 2),
@@ -525,8 +534,8 @@ namespace SalesTool
                 if (left.Count > 0) flow.Controls.Add(Note("네이버 브랜드·제조사 칸 (#1 스토어 1개 기준): " + left[0] + (left.Count > 1 ? " / " + left[1] : "") + "  (상품명에 못 넣은 키워드, 스토어마다 그 상품명 기준으로 넣음)"));
             }
             if (job.Status == "오류") flow.Controls.Add(Note("오류: " + job.Error + "  → 왼쪽 [다시 만들기]", Color.Firebrick));
-            if (job.Status == "대기" || job.Status == "진행 중") { flow.Controls.Add(Note(job.Step ?? "차례를 기다리는 중입니다.", Color.RoyalBlue)); review.ResumeLayout(); return; }
-            if (job.Keywords.Count == 0) { review.ResumeLayout(); return; }
+            if (job.Status == "대기" || job.Status == "진행 중") { flow.Controls.Add(Note(job.Step ?? "차례를 기다리는 중입니다.", Color.RoyalBlue)); done(); return; }
+            if (job.Keywords.Count == 0) { done(); return; }
 
             // 시작 단어 + 키워드
             seedBox = new TextBox { Width = 160, Text = job.Seed };
@@ -833,7 +842,7 @@ namespace SalesTool
             }
             resultLabel = Note(job.Results.Count == 0 ? "" : "총 " + job.Results.Count + "건 (성공 " + okList.Count + "건, 실패 " + failList.Count + "건)");
             flow.Controls.Add(resultLabel);
-            review.ResumeLayout();
+            done();
             tabs.SelectedTab = reviewTab;
         }
 
@@ -1971,9 +1980,20 @@ namespace SalesTool
             var pb = new PictureBox { Width = 140, Height = 140, SizeMode = PictureBoxSizeMode.Zoom, BorderStyle = BorderStyle.FixedSingle, Margin = new Padding(3), Cursor = Cursors.Hand, BackColor = Color.WhiteSmoke };
             if (File.Exists(file))
             {
-                using (var fs = new FileStream(file, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
-                using (var im = Image.FromStream(fs)) pb.Image = new Bitmap(im, 140, 140);
                 pb.Click += (s, e) => Process.Start(file);
+                var load = Task.Run(() =>
+                {
+                    using (var fs = new FileStream(file, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
+                    using (var im = Image.FromStream(fs, false, false)) return new Bitmap(im, 140, 140);
+                });
+                // 화면에 붙은 뒤(창 핸들이 생긴 뒤)에 다 읽힌 사진을 넣음
+                Action hook = () => load.ContinueWith(t =>
+                {
+                    if (t.Status != TaskStatus.RanToCompletion) return;
+                    var bmp = t.Result;
+                    try { pb.BeginInvoke(new Action(() => { if (pb.IsDisposed) bmp.Dispose(); else pb.Image = bmp; })); } catch { bmp.Dispose(); }
+                });
+                if (pb.IsHandleCreated) hook(); else pb.HandleCreated += (s2, e2) => hook();
             }
             return pb;
         }
