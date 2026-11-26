@@ -161,7 +161,7 @@ namespace SalesTool
 
                 // 1) 용도 조합어 (가장 앞) — 없으면 시작 단어
                 if (P.Count > 0) parts.Add(P[0]); else parts.Add(seedWord);
-                if (boxWord != null) parts.Add(boxWord);
+                // 묶음 수(2박스·2개)는 이름에 넣지 않음 (사용자 요청, v1.7.4)
                 // 사장님 사전 말을 바로 뒤에 4개까지 (계정마다 순서를 돌림)
                 foreach (var bm in R(bookMods.Take(6).ToList(), rot).Where(x => !Key(parts[0]).Contains(Key(x))).Take(4).ToList())   // 앞 조합어에 든 말(혈당유산균의 혈당)은 빼고
                     if (!parts.Any(x => Key(x) == Key(bm))) parts.Add(bm);

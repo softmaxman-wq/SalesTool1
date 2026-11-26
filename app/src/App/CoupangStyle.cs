@@ -75,6 +75,7 @@ namespace SalesTool
                 if (k.Length < 2 || typos.Contains(k)) return false;
                 if (StoreStyle.Junk.Contains(w)) return false;
                 if (Regex.IsMatch(w, "코스트코|약국|약사|의사|병원")) return false;
+                if (Regex.IsMatch(w, @"^\d+\s*(박스|개|세트|통|병)$")) return false;   // 묶음 수(2박스·2개)는 이름에 넣지 않음
                 var eok = Regex.Match(w, @"(\d+)억"); if (eok.Success && !Regex.IsMatch(name, eok.Groups[1].Value + @"\s*억")) return false;   // 상품에 없는 균수(900억 상품의 100억)
                 if (Naming.IsInfoQuery(w) || Naming.IsDisease(w)) return false;
                 if (StoreStyle.Weak.Contains(w)) return false;
