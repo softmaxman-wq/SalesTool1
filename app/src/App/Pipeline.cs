@@ -24,7 +24,7 @@ namespace SalesTool
         readonly Random rnd = new Random();
 
         // 상품명·키워드 규칙을 바꿀 때마다 올림 → 예전 규칙으로 만든 초안은 켤 때 자동으로 다시 만듦
-        public const int RulesVersion = 49;
+        public const int RulesVersion = 50;
 
         // 네이버 쇼핑을 실제로 열었을 때만 쉼 (저장된 결과를 다시 쓴 경우는 바로 다음으로)
         Task ShopPause() { return shop != null && shop.LastCached ? Task.FromResult(0) : Task.Delay(2000 + rnd.Next(1500)); }
@@ -1309,10 +1309,18 @@ namespace SalesTool
                         "의사추천 비타민",
                         "원장추천 영양제"
                     };
+                    var celebCores = new List<string> { center };
+                    string centerCore = Regex.Replace(center ?? "", @"\s+(식물성|연질|경질|장용성)?(캡슐|정|환|분말|가루|스틱|포|젤리|액|시럽|소프트겔)$", "").Trim();
+                    if (centerCore.Length >= 2 && !celebCores.Contains(centerCore)) celebCores.Add(centerCore);
+                    if (StoreStyle.Applies(job) && !celebCores.Contains("유산균")) celebCores.Add("유산균");
                     foreach (var cn in new[] { "여에스더", "유재석", "이만기", "오은영", "이경제", "이시형", "서재걸", "권오중", "남재현", "박용우", "홍혜걸", "정세연", "임영웅", "송가인", "강호동", "신동엽", "아이유", "고약사", "약들약", "리틀약사", "김소형", "이승남", "조승우", "차승원" })
                     {
-                        string cw1 = cn + " " + center;
-                        if (!celebSeedKeywords.Contains(cw1)) celebSeedKeywords.Add(cw1);
+                        // 시작 단어가 "유산균 캡슐"이어도 사람들은 "유재석 유산균"으로 찾음: 제형 말을 뗀 핵심어로
+                        foreach (var cc in celebCores)
+                        {
+                            string cw1 = cn + " " + cc;
+                            if (!celebSeedKeywords.Contains(cw1)) celebSeedKeywords.Add(cw1);
+                        }
                     }
                     foreach (var cw in celebSeedKeywords)
                     {
@@ -1340,7 +1348,7 @@ namespace SalesTool
                     }
 
                     // 추가 검색어 후보들의 검색량도 조회하여 월간검색량 30 초과 확보
-                    var unkWords = celebSeedKeywords.Where(w => w.Contains(center)).Concat(cand.Select(x => x.Key)).Concat(tags).Concat(extra).Concat(celebSeedKeywords).Where(w => !volMap.ContainsKey(SearchAd.Clean(w)) && w.Length >= 2 && w.Length <= 20).Distinct(StringComparer.OrdinalIgnoreCase).Take(200).ToList();
+                    var unkWords = celebSeedKeywords.Concat(cand.Select(x => x.Key)).Concat(tags).Concat(extra).Concat(celebSeedKeywords).Where(w => !volMap.ContainsKey(SearchAd.Clean(w)) && w.Length >= 2 && w.Length <= 20).Distinct(StringComparer.OrdinalIgnoreCase).Take(200).ToList();
                     if (unkWords.Count > 0)
                     {
                         try
