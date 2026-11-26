@@ -24,7 +24,7 @@ namespace SalesTool
         readonly Random rnd = new Random();
 
         // 상품명·키워드 규칙을 바꿀 때마다 올림 → 예전 규칙으로 만든 초안은 켤 때 자동으로 다시 만듦
-        public const int RulesVersion = 50;
+        public const int RulesVersion = 51;
 
         // 네이버 쇼핑을 실제로 열었을 때만 쉼 (저장된 결과를 다시 쓴 경우는 바로 다음으로)
         Task ShopPause() { return shop != null && shop.LastCached ? Task.FromResult(0) : Task.Delay(2000 + rnd.Next(1500)); }
@@ -1356,8 +1356,21 @@ namespace SalesTool
                             var keys = SearchAdKeys.Load(Store.Dir);
                             if (keys.Ready)
                             {
-                                var uv = await Task.Run(() => new SearchAd(keys).Volumes(unkWords, (d, n) => { }, () => false));
-                                foreach (var kv in uv) if (kv.Value.Total > 30) volMap[SearchAd.Clean(kv.Key)] = kv.Value.Total;
+                                // 25개씩 나눠 조회: 한 묶음이 오류(일시 제한 등)여도 나머지 검색량은 살림
+                                for (int ui = 0; ui < unkWords.Count; ui += 25)
+                                {
+                                    var part = unkWords.Skip(ui).Take(25).ToList();
+                                    for (int tryN = 0; tryN < 2; tryN++)
+                                    {
+                                        try
+                                        {
+                                            var uv = await Task.Run(() => new SearchAd(keys).Volumes(part, (d, n) => { }, () => false));
+                                            foreach (var kv in uv) if (kv.Value.Total > 30) volMap[SearchAd.Clean(kv.Key)] = kv.Value.Total;
+                                            break;
+                                        }
+                                        catch { await Task.Delay(2000); }
+                                    }
+                                }
                             }
                         }
                         catch { }
@@ -1496,7 +1509,9 @@ namespace SalesTool
                     var personWords = cand.Select(x => x.Key)
                         .Where(w => w.Length >= 2 && w.Length <= 20 && volMap.ContainsKey(SearchAd.Clean(w)) && volMap[SearchAd.Clean(w)] > 30)
                         .Where(w => !audienceRe.IsMatch(w)) // 노인, 수험생, 여자, 남자 등 대상군 단어 엄격 제외!
-                        .Where(w => personRel.Any(x => Key(w).Contains(x)) && relevant(w)) // 이 상품 말이 붙은 인물 검색어만 (김종국 프로틴·여에스더 글루타치온은 유산균 상품과 안 맞음)
+                        .Where(w => personRel.Any(x => Key(w).Contains(x)) && (relevant(w)
+                            // 유산균 상품: 시작 단어가 '프로바이오틱스 캡슐'이어도 사람들은 '유재석 유산균'으로 찾음
+                            || (ForcedCatPath(job) != null && Key(w).Contains("유산균") && personaFits(w) && !otherBrand(w)))) // 이 상품 말이 붙은 인물 검색어만 (김종국 프로틴·여에스더 글루타치온은 유산균 상품과 안 맞음)
                         .Where(w => {
                             string rk = riskWhy(w);
                             return rk == "인물" || personK.Any(p => Key(w).Contains(p)) || celebRe.IsMatch(w);
