@@ -508,7 +508,19 @@ namespace SalesTool
             nameBoxes.Clear();
             var flow = new FlowLayoutPanel { FlowDirection = FlowDirection.TopDown, WrapContents = false, AutoSize = true, Dock = DockStyle.Top };
             flow.SuspendLayout();
-            Action done = () => { flow.ResumeLayout(false); review.Controls.Add(flow); review.ResumeLayout(); };
+            var showSw = Stopwatch.StartNew();
+            Action done = () =>
+            {
+                flow.ResumeLayout(false); review.Controls.Add(flow); review.ResumeLayout();
+                // 화면 그리는 데 걸린 시간 기록 (멈춤 점검용)
+                try
+                {
+                    string lp = Path.Combine(Store.Dir, "ui_timing.log");
+                    if (File.Exists(lp) && new FileInfo(lp).Length > 200000) File.Delete(lp);
+                    File.AppendAllText(lp, DateTime.Now.ToString("MM-dd HH:mm:ss") + " " + (job == null ? "-" : job.Code + " " + job.Status) + " " + showSw.ElapsedMilliseconds + "ms" + Environment.NewLine);
+                }
+                catch { }
+            };
             if (job == null)
             {
                 flow.Controls.Add(new Label { AutoSize = true, Text = "왼쪽 목록에서 상품을 고르세요.", ForeColor = Color.DimGray, Margin = new Padding(4, 10, 0, 0) });
