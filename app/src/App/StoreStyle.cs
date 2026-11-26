@@ -56,6 +56,7 @@ namespace SalesTool
             new[] { "모유", "모유유산균", "" },
             new[] { "차전자피", "차전자피유산균", "식이섬유" },
             new[] { "질유산균|질건강", "질유산균", "" },
+            new[] { "마이크로바이옴", "마이크로바이옴유산균", "" },
             new[] { "구강|잇몸", "구강유산균", "입냄새" },
             new[] { "장용성", "장용성유산균", "" },
         };
@@ -76,15 +77,30 @@ namespace SalesTool
 
         // 혼자 쓰면 뜻이 약한 말 (사전 조합어 대장유산균에서 떼어 낸 대장·소장·대사, 글자 인식이 잘못 읽은 간장)
         public static readonly HashSet<string> Weak = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
-        { "대장", "소장", "대사", "간장", "당", "멀티", "입안", "예민한장", "뇌복합물", "장", "위", "질", "뇌" };
+        { "대장", "소장", "대사", "간장", "당", "멀티", "입안", "예민한장", "뇌복합물", "장", "위", "질", "뇌", "먹이" };
 
         // 유산균 상품에서 혼자 쓰면 다른 카테고리(다이어트·위 건강·혈당·두뇌 영양제)로 잡히는 말: 체지방감소·헬리코박터·바나바·지방분해제
         //  → 조합어(체지방감소유산균·헬리코박터유산균)로만 쓰고, 조합어가 안 되면 뺌. 라벨에 적힌 영양소(아연·셀레늄·프락토올리고당)는 그대로
         static readonly Regex DriftRe = new Regex("(체지방|지방|칼로리|탄수화물|다이어트|뱃살|술배|살빠|버닝|컷팅|커트|헬리코박터|헤리코박터|위건강|위점막|혈당|당케어|바나바|가르시니아|가르니시아|가르시아나|갱년기|여성호르몬|전두엽|두뇌|뇌건강|기억력|인지력|감초|글라브리딘|차전자피)");
-        public static bool Drift(string w)
+        // 유산균 상품에 쓰면 프리바이오틱스(유산균 먹이) 카테고리로 잡히는 말. 유산균이 붙은 조합어(프리바이오틱스유산균)만 씀
+        static readonly Regex PreRe = new Regex("(프리바이오|프락토|올리고당|치커리|이눌린|^fos$|^gos$)");
+        // 유산균이 붙어도 쓰지 않는 말: 유산균먹이(=프리바이오틱스), 자일리톨(부원료·단맛 내는 성분일 뿐)
+        static readonly Regex NeverRe = new Regex("(유산균먹이|자일리톨)");
+        // 순수 프리바이오틱스(유산균 먹이) 상품: 이름에 프리바이오틱스만 있고 유산균·프로바이오틱스가 없음
+        //  "신프로&프리바이오틱스", "마이크로바이옴프로&프리바이오틱스"는 유산균이 든 상품
+        public static bool PurePre(Job job)
+        {
+            string n = job == null ? "" : (job.Name ?? "");
+            return Regex.IsMatch(n, "프리바이오틱스") && !Regex.IsMatch(n, @"프로바이오틱스|유산균|프로\s*[&+＆,·]|신프로|신바이오|포스트");
+        }
+        public static bool Drift(string w, Job job = null)
         {
             string k = Key(w);
-            if (k.Length < 2 || Regex.IsMatch(k, "유산균|바이오틱")) return false;
+            if (k.Length < 2) return false;
+            bool pure = job != null && PurePre(job);
+            if (!pure && NeverRe.IsMatch(k)) return true;
+            if (!pure && !Regex.IsMatch(k, "유산균") && PreRe.IsMatch(k)) return true;
+            if (Regex.IsMatch(k, "유산균|바이오틱")) return false;
             if (k.Length >= 3 && k.EndsWith("제")) return true;   // 지방분해제·위영양제·가르시니아보조제: 다른 상품 종류
             return DriftRe.IsMatch(k);
         }
@@ -100,13 +116,13 @@ namespace SalesTool
             foreach (var p in Purposes)
                 if (Regex.IsMatch(name, p[0], RegexOptions.IgnoreCase)) { if (!purpose.Contains(p[1])) purpose.Add(p[1]); if (p[2] != "" && !persona.Contains(p[2])) persona.Add(p[2]); }
             if (Regex.IsMatch(ocr, "공복") && !persona.Contains("공복")) persona.Add("공복");
-            persona = persona.Where(x => !Drift(x)).ToList();
+            persona = persona.Where(x => !Drift(x, job)).ToList();
             // 묶음 상품(30포x2박스): 한 통짜리와 이름이 같지 않게 묶음 수를 넣음
             var boxM = Regex.Match(name, @"[xX×]\s*(\d+)\s*(박스|개|세트|통|병)");
             string boxWord = boxM.Success && int.Parse(boxM.Groups[1].Value) >= 2 ? boxM.Groups[1].Value + boxM.Groups[2].Value : null;
             if (Regex.IsMatch(name, @"\d+억")) { var m = Regex.Match(name, @"(\d+)억"); purpose.Add(m.Groups[1].Value + "억유산균"); }   // 상품명에 적힌 균수만
 
-            bool pre = Regex.IsMatch(name, "프리바이오틱스") && !Regex.IsMatch(name, "프로바이오틱스|유산균");   // 유산균 먹이(프리바이오틱스) 상품
+            bool pre = PurePre(job);   // 유산균 먹이(프리바이오틱스) 상품
             // 상품명에 적힌 그 밖의 특징 (사실 그대로): 19종 → 19종유산균, 함께 든 영양소, 생유산균
             var extra = new List<string>();
             var jm = Regex.Match(name, @"(\d+)\s*종");
@@ -114,14 +130,15 @@ namespace SalesTool
             foreach (var n in Nutrients)
                 if (Regex.IsMatch(name, n[0], RegexOptions.IgnoreCase) && !extra.Contains(n[1])) extra.Add(n[1]);
             foreach (var n in PreFoods)   // 유산균 먹이 성분은 라벨 글자에서도 봄
-                if ((pre || n[1] == "프락토올리고당") && Regex.IsMatch(both, n[0]) && !extra.Contains(n[1])) extra.Add(n[1]);   // 유산균 상품엔 프락토올리고당만 (치커리 같은 말은 먹이 상품에만)
+                if (pre && Regex.IsMatch(both, n[0]) && !extra.Contains(n[1])) extra.Add(n[1]);   // 프락토올리고당·치커리는 먹이 상품에만 (유산균 상품에 쓰면 프리바이오틱스 카테고리로 잡힘)   // 유산균 상품엔 프락토올리고당만 (치커리 같은 말은 먹이 상품에만)
             if (Regex.IsMatch(name, "생유산균")) extra.Add("생유산균");
 
             var strainKo = new List<string>(); var strainEn = new List<string>();
             foreach (var s in Strains)
                 if (Regex.IsMatch(both, s[0])) { strainKo.Add(s[1]); strainEn.Add(s[2]); }
             bool bifido = Regex.IsMatch(both, "비피더스|비피도");
-            bool syn = Regex.IsMatch(both, "신바이오틱스");
+            bool syn = Regex.IsMatch(both, "신바이오틱스") || Regex.IsMatch(name, @"프로\s*[&+＆,·]\s*프리|신프로");
+            if (!pre && Regex.IsMatch(name, @"프로\s*[&+＆,·]\s*프리|신프로") && !extra.Contains("신바이오틱스")) extra.Add("신바이오틱스");   // 프로&프리 = 신바이오틱스
 
             // 변형 표기: 손님이 실제로 치는 말 (프로바이오텍·신바이오텍·유산 균)
             var typo = new List<string>();
@@ -129,7 +146,7 @@ namespace SalesTool
             else { typo.Add("프로바이오텍"); if (syn) typo.Add("신바이오텍"); }
 
             // 자리 채움: 기존 규칙이 고른 단어 중 뜻 없는 말·큰 검색어 나열·숫자 아닌 것
-            var fill = (body ?? new List<string>()).Where(w => !Junk.Contains(w) && !Regex.IsMatch(w, @"\d") && Key(w).Length >= 2 && !Naming.IsInfoQuery(w) && !Naming.IsDisease(w) && !Regex.IsMatch(w, "고르는법|추천|순위|효능|부작용|먹는법|먹는시간") && !Weak.Contains(w) && !Drift(w) && (nameOk == null || nameOk(w)))
+            var fill = (body ?? new List<string>()).Where(w => !Junk.Contains(w) && !Regex.IsMatch(w, @"\d") && Key(w).Length >= 2 && !Naming.IsInfoQuery(w) && !Naming.IsDisease(w) && !Regex.IsMatch(w, "고르는법|추천|순위|효능|부작용|먹는법|먹는시간") && !Weak.Contains(w) && !Drift(w, job) && (nameOk == null || nameOk(w)))
                                                     .Distinct(StringComparer.OrdinalIgnoreCase).ToList();
 
             // 사장님 사전 말(공복유산균·저녁유산균·장용성100억유산균): 네이버는 "유산균"을 떼고 붙은 말만 (저녁 식전 공복 혈당 유산균 — 사장님 상품명 방식, 반복 경고도 피함)
@@ -138,9 +155,10 @@ namespace SalesTool
             foreach (var w in (body ?? new List<string>()).Where(w => bookSet.Contains(Key(w)) && (nameOk == null || nameOk(w))))
             {
                 string k = Key(w);
+                if (Drift(w, job)) continue;   // 유산균먹이·자일리톨유산균: 조합어도 안 씀
                 string mod = k.Contains("유산균") && k != "유산균" ? w.Replace("유산균", "").Replace(" ", "") : w;
                 if (Key(mod).Length < 1 || Junk.Contains(mod) || Weak.Contains(mod) || Regex.IsMatch(Key(mod), "^(프로바이오|프로바이오틱스|프로바이오틱|생|유산균)$")) continue;
-                if (Drift(mod)) { if (Key(w) == Key(mod)) continue; mod = w; }   // 체지방감소 → 체지방감소유산균 (유산균 없는 말이면 뺌)
+                if (Drift(mod, job)) { if (Key(w) == Key(mod) || Drift(w, job)) continue; mod = w; }   // 체지방감소 → 체지방감소유산균 (유산균 없는 말이면 뺌)
                 if (!bookMods.Any(x => Key(x) == Key(mod))) bookMods.Add(mod);
             }
 
@@ -191,7 +209,7 @@ namespace SalesTool
                     if (outW.Any(o => Key(o) == Key(w))) continue;
                     if (Key(w).Contains("유산균") && outW.Count(o => Key(o).Contains("유산균")) >= 2) continue;
                     if (Len(outW) + 1 + w.Length > 50) continue;
-                    if (Drift(w) || Weak.Contains(w)) continue;
+                    if (Drift(w, job) || Weak.Contains(w)) continue;
                     outW.Add(w);
                 }
                 // 같은 사업자의 두 번째 상품명이나 앞 사업자 상품명과 똑같으면: 첫 단어 뒤 순서를 뒤집고, 그래도 같으면 남은 단어를 더함

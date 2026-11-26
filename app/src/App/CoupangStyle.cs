@@ -63,9 +63,9 @@ namespace SalesTool
             var knownKw = new HashSet<string>((job.Keywords ?? new List<KwRow>()).Concat(job.Related ?? new List<KwRow>()).Concat(job.Concern ?? new List<KwRow>()).Select(r => Key(r.Word)));
             Func<string, string> fix = w =>
             {
-                if (!pro || w == null || !StoreStyle.Drift(w)) return w;
+                if (!pro || w == null || !StoreStyle.Drift(w, job)) return w;
                 string combo = Regex.Replace(w, @"\s+", "") + "유산균";
-                return !Key(w).EndsWith("제") && knownKw.Contains(Key(combo)) ? combo : null;
+                return !Key(w).EndsWith("제") && !StoreStyle.Drift(combo, job) && knownKw.Contains(Key(combo)) ? combo : null;
             };
             var typos = new HashSet<string>((job.Keywords ?? new List<KwRow>()).Where(k => k.Typo).Select(k => Key(k.Word)));
             foreach (var t in new[] { "프로바이오텍", "신바이오텍", "프리바이오텍" }) typos.Add(Key(t));

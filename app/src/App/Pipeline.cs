@@ -24,7 +24,7 @@ namespace SalesTool
         readonly Random rnd = new Random();
 
         // 상품명·키워드 규칙을 바꿀 때마다 올림 → 예전 규칙으로 만든 초안은 켤 때 자동으로 다시 만듦
-        public const int RulesVersion = 48;
+        public const int RulesVersion = 49;
 
         // 네이버 쇼핑을 실제로 열었을 때만 쉼 (저장된 결과를 다시 쓴 경우는 바로 다음으로)
         Task ShopPause() { return shop != null && shop.LastCached ? Task.FromResult(0) : Task.Delay(2000 + rnd.Next(1500)); }
@@ -254,6 +254,11 @@ namespace SalesTool
                 }
             }
             // 유산균 상품은 시작 단어에 유산균·프로바이오틱스 같은 말이 있어야 함 (다이어트·가르시니아·인지력케어로 시작하면 그 카테고리 상품명이 됨)
+            if (!string.IsNullOrEmpty(seed) && ForcedCatPath(job) != null && !StoreStyle.PurePre(job) && Regex.IsMatch(seed, "프리바이오|프락토|올리고당|마이크로바이옴"))
+            {
+                job.SeedReason = "유산균이 든 상품이라 '" + seed + "' 대신 유산균으로 시작 (프리바이오틱스 카테고리로 잡히지 않게)";
+                seed = seed.Contains(" ") ? "유산균" + seed.Substring(seed.IndexOf(' ')) : "유산균";
+            }
             if (!string.IsNullOrEmpty(seed) && !HasCoreTerm(job, seed))
             {
                 job.SeedReason = "msgood 분류가 유산균이라 '" + seed + "' 대신 유산균으로 시작";
@@ -1304,6 +1309,11 @@ namespace SalesTool
                         "의사추천 비타민",
                         "원장추천 영양제"
                     };
+                    foreach (var cn in new[] { "여에스더", "유재석", "이만기", "오은영", "이경제", "이시형", "서재걸", "권오중", "남재현", "박용우", "홍혜걸", "정세연", "임영웅", "송가인", "강호동", "신동엽", "아이유", "고약사", "약들약", "리틀약사", "김소형", "이승남", "조승우", "차승원" })
+                    {
+                        string cw1 = cn + " " + center;
+                        if (!celebSeedKeywords.Contains(cw1)) celebSeedKeywords.Add(cw1);
+                    }
                     foreach (var cw in celebSeedKeywords)
                     {
                         if (!cand.Any(x => x.Key.Equals(cw, StringComparison.OrdinalIgnoreCase)))
@@ -1330,7 +1340,7 @@ namespace SalesTool
                     }
 
                     // 추가 검색어 후보들의 검색량도 조회하여 월간검색량 30 초과 확보
-                    var unkWords = cand.Select(x => x.Key).Concat(tags).Concat(extra).Concat(celebSeedKeywords).Where(w => !volMap.ContainsKey(SearchAd.Clean(w)) && w.Length >= 2 && w.Length <= 20).Distinct(StringComparer.OrdinalIgnoreCase).Take(160).ToList();
+                    var unkWords = celebSeedKeywords.Where(w => w.Contains(center)).Concat(cand.Select(x => x.Key)).Concat(tags).Concat(extra).Concat(celebSeedKeywords).Where(w => !volMap.ContainsKey(SearchAd.Clean(w)) && w.Length >= 2 && w.Length <= 20).Distinct(StringComparer.OrdinalIgnoreCase).Take(200).ToList();
                     if (unkWords.Count > 0)
                     {
                         try
@@ -1954,7 +1964,7 @@ namespace SalesTool
             if (forcedCat != null)
             {
                 string lf = (job.CatPath ?? "").Split('>').Last();
-                if (lf != "프로바이오틱스" && lf != "프리바이오틱스")
+                if (lf != "프로바이오틱스" && !(lf == "프리바이오틱스" && StoreStyle.PurePre(job)))   // 프로&프리(신바이오틱스)는 유산균 상품
                 {
                     step("2/6 msgood 분류가 유산균이라 카테고리를 프로바이오틱스로 정함 (검색 결과: " + (job.CatPath ?? "없음") + ")");
                     job.CatPath = forcedCat;
