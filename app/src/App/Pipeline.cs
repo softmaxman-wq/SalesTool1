@@ -24,7 +24,7 @@ namespace SalesTool
         readonly Random rnd = new Random();
 
         // 상품명·키워드 규칙을 바꿀 때마다 올림 → 예전 규칙으로 만든 초안은 켤 때 자동으로 다시 만듦
-        public const int RulesVersion = 45;
+        public const int RulesVersion = 46;
 
         // 네이버 쇼핑을 실제로 열었을 때만 쉼 (저장된 결과를 다시 쓴 경우는 바로 다음으로)
         Task ShopPause() { return shop != null && shop.LastCached ? Task.FromResult(0) : Task.Delay(2000 + rnd.Next(1500)); }
@@ -433,6 +433,18 @@ namespace SalesTool
                 catch (NaverBlocked) { throw; }
                 catch { }
                 await ShopPause();
+            }
+
+            // 시작 단어(홍화씨유) 자체가 이 카테고리로 거의 안 나오면 카테고리를 잘못 고른 것 → 카테고리 확인 결과를 쓰지 않음
+            //  (그대로 두면 홍화씨오일·리놀렌산까지 모두 '다른 카테고리'로 빠져 상품명이 "홍화씨유 캡슐"만 남음)
+            {
+                string sh = Key((seed ?? "").Split(' ')[0]);
+                var seedRow = rows.FirstOrDefault(r => r.CatChecked && Key(r.Word) == sh);
+                if (leaf != null && ForcedCatPath(job) == null && seedRow != null && seedRow.CatShare >= 0 && seedRow.CatShare < 0.2)
+                {
+                    step("3/6 시작 단어도 이 카테고리로 안 나와 카테고리 확인을 쓰지 않습니다 (" + seedRow.Word + ")");
+                    foreach (var r in rows) { r.CatChecked = false; r.CatShare = -1; }
+                }
             }
 
             // 다른 카테고리 단어(체지방감소·가르시니아·바나바잎·포스파티딜세린)는 단독으로 쓰지 않고, 이 카테고리 대표 말을 붙인 조합어
@@ -1365,10 +1377,21 @@ namespace SalesTool
                     // 수입 원료 상품(스페인산 등)에 '국산·국내산' 검색어를 넣으면 원산지를 잘못 알리게 됨
                     bool imported = Regex.IsMatch((job.Name ?? "") + " " + (job.OcrText ?? ""), @"(스페인|미국|중국|캐나다|호주|뉴질랜드|독일|프랑스|이탈리아|일본|인도|칠레|페루|베트남|태국|덴마크|노르웨이|영국|네덜란드)\s*산")
                                     && !Regex.IsMatch(job.Name ?? "", "국산|국내산");
+                    // 대상 말: 상품과 맞는 대상만 (어른 상품에 임산부유산균·아기유산균, 여성 상품에 남자유산균은 안 넣음)
+                    //  대상이 정해지지 않은 상품엔 남자·여성 같은 일반 대상만
+                    string prodText = (job.Name ?? "") + " " + string.Join(" ", job.Names.Where(kv => kv.Key.StartsWith("n")).Select(kv => kv.Value));
+                    var groups = new[] { "어린이|아이|아기|유아|키즈|초등|소아", "임산부|임신|산모|수유", "노인|어르신|시니어|실버|부모님", "수험생|청소년|학생|고3", "갱년기|중년", "여성|여자|우먼", "남성|남자" }.Select(g => new Regex(g)).ToList();
+                    var prodGroups = groups.Where(g => g.IsMatch(prodText)).ToList();
+                    Func<string, bool> personaFits = w =>
+                    {
+                        for (int gi = 0; gi < groups.Count; gi++)
+                            if (groups[gi].IsMatch(w) && !prodGroups.Contains(groups[gi]) && !(gi >= 5 && prodGroups.Count == 0)) return false;
+                        return true;
+                    };
                     Func<string, bool> relevant = w =>
                     {
                         string k = Key(w);
-                        if (k.Length < 2 || otherBrand(w)) return false;
+                        if (k.Length < 2 || otherBrand(w) || !personaFits(w)) return false;
                         if (imported && Regex.IsMatch(k, "국산|국내산")) return false;
                         // 원산지 말만 있는 검색어(스페인산·국산)는 사람들이 찾는 말이 아님
                         if (Regex.IsMatch(k, @"^(국|국내|수입|외국|스페인|미국|중국|캐나다|호주|뉴질랜드|독일|프랑스|이탈리아|일본|인도|칠레|페루|베트남|태국|덴마크|노르웨이|영국|네덜란드)산$")) return false;
@@ -1451,9 +1474,11 @@ namespace SalesTool
 
                     // ── [쿠팡 #2 샵]: 의사/약사/연예인/유명인 키워드 전자동 즉시 주입 (월간검색량 > 30 필수, 검색량 내림차순)
                     // 노인, 수험생, 여자, 남자 등 일반 대상군은 엄격 배제!
+                    var personRel = relKeys.Concat(new[] { Key(CategoryCoreWord(job) ?? "") }).Where(x => x.Length >= 2).Distinct().ToList();
                     var personWords = cand.Select(x => x.Key)
                         .Where(w => w.Length >= 2 && w.Length <= 20 && volMap.ContainsKey(SearchAd.Clean(w)) && volMap[SearchAd.Clean(w)] > 30)
                         .Where(w => !audienceRe.IsMatch(w)) // 노인, 수험생, 여자, 남자 등 대상군 단어 엄격 제외!
+                        .Where(w => personRel.Any(x => Key(w).Contains(x)) && relevant(w)) // 이 상품 말이 붙은 인물 검색어만 (김종국 프로틴·여에스더 글루타치온은 유산균 상품과 안 맞음)
                         .Where(w => {
                             string rk = riskWhy(w);
                             return rk == "인물" || personK.Any(p => Key(w).Contains(p)) || celebRe.IsMatch(w);
@@ -1507,11 +1532,11 @@ namespace SalesTool
                     var tags3 = new List<string>();
                     var seen3 = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
                     // 1순위: 최근 급상승 키워드 우선 꽉 채우기
-                    foreach (var w in risingWords) { if (tags3.Count >= 20) break; if (seen3.Add(w)) tags3.Add(w); }
+                    foreach (var w in risingWords.Where(x => !tags1.Contains(x, StringComparer.OrdinalIgnoreCase))) { if (tags3.Count >= 20) break; if (seen3.Add(w)) tags3.Add(w); }
                     // 2순위: 20개 미달 시 월검색수 > 30 내림차순 보충 (상품명 안전단어 제외, 선을 넘나드는 연관/효능 키워드)
                     foreach (var w in semiSafePool.Where(x => !tags1.Contains(x, StringComparer.OrdinalIgnoreCase) && !tags2.Contains(x, StringComparer.OrdinalIgnoreCase)).Concat(semiSafePool)) { if (tags3.Count >= 20) break; if (seen3.Add(w)) tags3.Add(w); }
                     // 3순위: 무조건 20개 꽉 채우기 (emergencyPool)
-                    foreach (var w in emergencyPool) { if (tags3.Count >= 20) break; if (seen3.Add(w)) tags3.Add(w); }
+                    foreach (var w in emergencyPool.Where(x => !tags1.Contains(x, StringComparer.OrdinalIgnoreCase)).Concat(risingWords).Concat(emergencyPool)) { if (tags3.Count >= 20) break; if (seen3.Add(w)) tags3.Add(w); }
                     // 4순위: 그래도 20개가 안 되면 쿠팡 자동완성 실제 검색어로 (앞 샵이 안 쓴 말 먼저)
                     foreach (var w in autoPool.Where(x => !tags1.Contains(x, StringComparer.OrdinalIgnoreCase) && !tags2.Contains(x, StringComparer.OrdinalIgnoreCase)).Concat(autoPool)) { if (tags3.Count >= 20) break; if (seen3.Add(w)) tags3.Add(w); }
 

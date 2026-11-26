@@ -21,7 +21,8 @@ namespace SalesTool
             new[] { "키즈|어린이|아이|유아|초등", "어린이 아이 키즈 초등학생 유아 성장기" },
             new[] { "청소년|수험생|학생|틴", "청소년 중학생 고등학생 수험생 10대 20대 학생" },
             new[] { "임산부|임신|산모|출산", "임산부 임신 산모 출산후 여성 20대 30대 40대" },
-            new[] { "갱년기|중년", "중년 갱년기 여성 남성 40대 50대 60대" },
+            new[] { "남성갱년기|남자갱년기", "중년 갱년기 남성 남자 40대 50대 60대" },
+            new[] { "갱년기|중년", "중년 갱년기 여성 여자 40대 50대 60대" },
             new[] { "실버|시니어|어르신|노인|부모님", "어르신 부모님 노인 60대 70대 아버지 어머니" },
             new[] { "우먼|여성|여자|레이디", "여성 여자 20대 30대 40대 50대" },
             new[] { "맨|남성|남자", "남성 남자 20대 30대 40대 50대" },
@@ -55,6 +56,17 @@ namespace SalesTool
             string cat = job.CatPath ?? "";
 
             // 변형 표기(쿠팡에선 안 씀): 검색어 표에서 오타로 표시된 말, 유산균 틀의 프로바이오텍·신바이오텍·프리바이오텍
+            string textKey = Key(both);
+            var correct = (job.Keywords ?? new List<KwRow>()).Select(r => r.Word).Where(x => Key(x).Length >= 3 && textKey.Contains(Key(x))).Distinct().ToList();
+            bool pro = StoreStyle.Applies(job);
+            // 유산균 상품: 혼자 쓰면 다른 카테고리로 잡히는 말은 조합어(헬리코박터유산균)로 바꾸고, 조합어가 실제 검색어가 아니면 뺌
+            var knownKw = new HashSet<string>((job.Keywords ?? new List<KwRow>()).Concat(job.Related ?? new List<KwRow>()).Concat(job.Concern ?? new List<KwRow>()).Select(r => Key(r.Word)));
+            Func<string, string> fix = w =>
+            {
+                if (!pro || w == null || !StoreStyle.Drift(w)) return w;
+                string combo = Regex.Replace(w, @"\s+", "") + "유산균";
+                return !Key(w).EndsWith("제") && knownKw.Contains(Key(combo)) ? combo : null;
+            };
             var typos = new HashSet<string>((job.Keywords ?? new List<KwRow>()).Where(k => k.Typo).Select(k => Key(k.Word)));
             foreach (var t in new[] { "프로바이오텍", "신바이오텍", "프리바이오텍" }) typos.Add(Key(t));
             Func<string, bool> ok = w =>
@@ -65,6 +77,9 @@ namespace SalesTool
                 if (Regex.IsMatch(w, "코스트코|약국|약사|의사|병원")) return false;
                 var eok = Regex.Match(w, @"(\d+)억"); if (eok.Success && !Regex.IsMatch(name, eok.Groups[1].Value + @"\s*억")) return false;   // 상품에 없는 균수(900억 상품의 100억)
                 if (Naming.IsInfoQuery(w) || Naming.IsDisease(w)) return false;
+                if (StoreStyle.Weak.Contains(w)) return false;
+                // 라벨·상품명에 있는 바른 말의 오타 (헤리코박터·가르니시아·람노스): 쿠팡엔 안 씀
+                if (!textKey.Contains(k) && correct.Any(x => Naming.IsNearTypo(w, x))) return false;
                 if (Regex.IsMatch(w, "고르는법|추천|순위|효능|부작용|먹는법|먹는시간|가격|최저가")) return false;
                 return nameOk == null || nameOk(w);
             };
@@ -74,29 +89,39 @@ namespace SalesTool
             if (!IsPet(job))
             {
                 foreach (var p in Personas) if (Regex.IsMatch(name, p[0], RegexOptions.IgnoreCase)) { persona = p[1]; break; }
+                // 사장님이 이 상품에 고른 말이 아이 대상(초등학생유산균·아이유산균)이면 아이 묶음
+                if (persona == null && pro && Regex.IsMatch(string.Join(" ", job.Names.Where(kv => kv.Key.StartsWith("n")).Select(kv => kv.Value)), "초등학생|어린이|키즈|아이유산균|유아")) persona = Personas[0][1];
                 if (persona == null && cat.StartsWith("식품>건강식품")) persona = AdultAll;
                 else if (persona == null && cat.StartsWith("식품")) persona = Family;
             }
             var pw = persona == null ? new List<string>() : persona.Split(' ').ToList();
 
             var eng = English.Where(e => Regex.IsMatch(name + " " + (job.Seed ?? ""), e[0], RegexOptions.IgnoreCase))   // 상품명·시작 단어에 있는 원료만 (상세 원료표의 부원료는 안 봄)
-                .Select(e => e[1]).Distinct().ToList();
+                .Select(e => e[1]).Distinct().Where(x => !pro || x == "Probiotics").ToList();   // 유산균 상품엔 Probiotics만 (Garcinia·Zinc는 다른 카테고리로 잡힘)
             var months = Regex.Match(name, @"(\d+)\s*개월");
             string period = months.Success ? months.Groups[1].Value + "개월분" : null;
 
             // 유산균 상품: 네이버 상품명의 용도 조합어·균 이름·영어 학명(다이어트유산균·뱃살·Lactobacillus Plantarum)을 먼저 씀
             var fromNaver = StoreStyle.Applies(job) ? job.Names.Where(kv => kv.Key.StartsWith("n")).OrderBy(kv => kv.Key).SelectMany(kv => Regex.Split(kv.Value ?? "", @"\s+")).ToList() : new List<string>();
-            var bodyW = fromNaver.Concat(body ?? new List<string>()).Where(ok).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+            fromNaver = fromNaver.Select(fix).Where(x => x != null).ToList();
+            var bodyW = fromNaver.Concat(body ?? new List<string>()).Select(fix).Where(x => x != null).Where(ok).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+            string seedHead = (job.Seed ?? "").Split(' ')[0];
+            var pwSet = new HashSet<string>(pw, StringComparer.OrdinalIgnoreCase);
+            // 앞 조합어에 이미 든 말(공복유산균 뒤의 공복)은 다시 안 씀. 유산균·제형·시작 단어·대상 말은 예외
+            Func<string, bool> plain = w => pwSet.Contains(w) || Regex.IsMatch(Key(w), "^(유산균|프로바이오틱스|프리바이오틱스|캡슐|분말|정|포|probiotics)$") || Key(w) == Key(seedHead);
+            Func<List<string>, string, bool> inside = (ps, w) => !plain(w) && ps.Any(x => Key(x) != Key(w) && Key(x).Contains(Key(w)));
             var used = new HashSet<string>();
             int i = 0;
             foreach (var k in cKeys)
             {
                 // 지금 쿠팡 이름(변형 표기 뺌)을 앞에 두고, 영어 이름 → 기존 단어 → 대상·나이대 → 기간 순으로 채움. 계정마다 순서를 바꿈
-                var head = Regex.Split(job.Names[k] ?? "", @"\s+").Where(w => w.Length > 0 && ok(w)).ToList();
+                var head = Regex.Split(job.Names[k] ?? "", @"\s+").Where(w => w.Length > 0).Select(fix).Where(w => w != null && ok(w)).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+                head = head.Where(w => !inside(head, w)).ToList();
+                if (seedHead.Length >= 2 && !head.Any(x => Key(x).Contains(Key(seedHead)))) head.Insert(0, seedHead);   // 시작 단어(홍화씨유)는 꼭
                 var rest = bodyW.Skip(i * 3 % Math.Max(1, bodyW.Count)).Concat(bodyW.Take(i * 3 % Math.Max(1, bodyW.Count))).ToList();
                 var e = eng.Skip(i % Math.Max(1, eng.Count)).Concat(eng.Take(i % Math.Max(1, eng.Count))).ToList();
                 var parts = new List<string>(head);
-                Action<string> add = w => { if (w == null || parts.Any(x => Key(x) == Key(w))) return; if ((string.Join(" ", parts) + " " + w).Length > Max) return; parts.Add(w); };
+                Action<string> add = w => { if (w == null || parts.Any(x => Key(x) == Key(w)) || inside(parts, w)) return; if ((string.Join(" ", parts) + " " + w).Length > Max) return; parts.Add(w); };
                 if (fromNaver.Count > 0 && ok(fromNaver[0])) add(fromNaver[0]);   // 용도 조합어(다이어트유산균·혈당유산균)는 모든 계정에
                 if (i % 3 == 1) { foreach (var w in pw) add(w); }
                 foreach (var w in e.Take(2)) add(w);
