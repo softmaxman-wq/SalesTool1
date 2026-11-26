@@ -24,7 +24,7 @@ namespace SalesTool
         readonly Random rnd = new Random();
 
         // 상품명·키워드 규칙을 바꿀 때마다 올림 → 예전 규칙으로 만든 초안은 켤 때 자동으로 다시 만듦
-        public const int RulesVersion = 46;
+        public const int RulesVersion = 47;
 
         // 네이버 쇼핑을 실제로 열었을 때만 쉼 (저장된 결과를 다시 쓴 경우는 바로 다음으로)
         Task ShopPause() { return shop != null && shop.LastCached ? Task.FromResult(0) : Task.Delay(2000 + rnd.Next(1500)); }
@@ -1511,7 +1511,7 @@ namespace SalesTool
                         if (seen2.Add(w)) tags2.Add(w);
                     }
                     // 5순위: 무조건 20개 100% 채우기 (allFallback 중 대상군 제외)
-                    foreach (var w in allFallback.Where(x => !audienceRe.IsMatch(x)))
+                    foreach (var w in allFallback.Where(x => !audienceRe.IsMatch(x) && !askedQ.Contains(Key(x)) && riskWhy(x) == null))   // 위험 확인용으로 검색해 본 말(홍화씨유 캡슐 치료)은 안 넣음
                     {
                         if (tags2.Count >= 20) break;
                         if (seen2.Add(w)) tags2.Add(w);
