@@ -24,7 +24,7 @@ namespace SalesTool
         readonly Random rnd = new Random();
 
         // 상품명·키워드 규칙을 바꿀 때마다 올림 → 예전 규칙으로 만든 초안은 켤 때 자동으로 다시 만듦
-        public const int RulesVersion = 52;
+        public const int RulesVersion = 53;
 
         // 네이버 쇼핑을 실제로 열었을 때만 쉼 (저장된 결과를 다시 쓴 경우는 바로 다음으로)
         Task ShopPause() { return shop != null && shop.LastCached ? Task.FromResult(0) : Task.Delay(2000 + rnd.Next(1500)); }
@@ -1564,6 +1564,24 @@ namespace SalesTool
                         .ThenByDescending(w => volMap[SearchAd.Clean(w)])
                         .ToList();
 
+                    // 이 상품 종류에 맞는 말만: 상품 핵심어(유산균 등)가 붙었거나, 이 카테고리 키워드에서 나온 브랜드(락토핏·듀오락)가 든 말
+                    //  다른 종류 상품 말(비타민·관절·호관원·글루타치온 …)이 든 검색어는 뺌
+                    var catBrandKeys = new HashSet<string>(job.Keywords.Where(r => r.Excluded == "브랜드" || r.Excluded == "브랜드(학습)").Select(r => Key(r.Word)).Where(x => x.Length >= 2));
+                    foreach (var fw in firstWords) catBrandKeys.Add(fw);
+                    var multiMakerRe = new Regex("^(해외)?(고려은단|종근당|종근당건강|유한양행|한미양행|유유제약|일양약품|동아제약|대웅제약|광동제약|세노비스|gnc|뉴트리원|cj웰케어|내츄럴플러스|뉴네이처|gnm자연의품격|나우푸드|솔가|센트룸|뉴트리라이트|정관장|한삼인|안국건강|휴온스|조아제약|보령|녹십자|뉴트리코어|닥터린|에스더포뮬러|여에스더)$", RegexOptions.IgnoreCase);
+                    var otherKindRe = new Regex("비타민|칼슘|마그네슘|오메가|루테인|콜라겐|프로틴|단백질|철분|글루타치온|관절|호관원|보궁|숙취|녹용|홍삼|다이어트|아르기닌|밀크씨슬|코엔자임|쏘팔메토|익스트림");
+                    Func<string, bool> kindFits = w =>
+                    {
+                        string k = Key(w);
+                        var ok = otherKindRe.Match(k);
+                        if (ok.Success && !Key(job.Name).Contains(ok.Value) && Naming.Occ(job.OcrText, ok.Value) < 2) return false;
+                        if (isPersonOrBrandRel(w)) return true;
+                        // 여러 종류를 만드는 회사(고려은단·종근당 …)는 이름만으로 이 상품 종류인지 알 수 없음 (유재석 고려은단 = 비타민)
+                        Func<string, bool> catBrand = t => catBrandKeys.Contains(t) && !multiMakerRe.IsMatch(t);
+                        return w.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries).Any(t => catBrand(Key(t))) || catBrand(k);
+                    };
+                    personWords = personWords.Where(kindFits).ToList();
+                    brandProductWords = brandProductWords.Where(kindFits).ToList();
                     var coreCombined2 = personWords.Where(isPersonOrBrandRel)
                         .Concat(brandProductWords.Where(isPersonOrBrandRel))
                         .Distinct(StringComparer.OrdinalIgnoreCase)
