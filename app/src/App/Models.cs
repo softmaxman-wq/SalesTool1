@@ -167,7 +167,7 @@ namespace SalesTool
         public List<string> History = new List<string>();
         public Dictionary<string, int> SoldWords = new Dictionary<string, int>();   // 팔린 상품(최근 30일)의 상품명 단어 → 판매 개수
 
-        public int SoldScore(string w) { int n; return SoldWords != null && SoldWords.TryGetValue(w.ToLowerInvariant(), out n) ? n : 0; }
+        public int SoldScore(string w) { int n; return (SoldWords != null && SoldWords.TryGetValue(w.ToLowerInvariant(), out n) ? n : 0) + SalesBookImport.NameWordScore(w); }
         public bool IsBrand(string w) { int n; return Brands.TryGetValue(w.ToLowerInvariant(), out n) && n >= 1; }
         public bool IsTagOnly(string w) { int n; return TagOnly.TryGetValue(w.ToLowerInvariant(), out n) && n >= 1; }
         public bool IsExcluded(string w) { int n; return Excluded.TryGetValue(w.ToLowerInvariant(), out n) && n >= 1; }

@@ -1918,7 +1918,16 @@ namespace SalesTool
                 Store.Save(Store.LearnPath, learned);
                 foreach (var p in problems) StockLog("※ " + p);
                 StockLog("판매 실적 " + rows.Count + "개 상품, " + rows.Sum(r => r.Count) + "개 팔림 → 상품명 단어 " + learned.SoldWords.Count + "개를 학습했습니다.");
+            }), Btn("내 판매 자료(엑셀) 넣기", () =>
+            {
+                using (var dlg = new OpenFileDialog { Filter = "엑셀 (*.xlsx)|*.xlsx", Title = "팔린 상품명·팔린 검색어 엑셀 고르기", InitialDirectory = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Downloads") })
+                {
+                    if (dlg.ShowDialog(this) != DialogResult.OK) return;
+                    try { StockLog(SalesBookImport.Import(dlg.FileName) + " 다음 상품명·쿠팡 검색어부터 씁니다. (이 PC에만 저장, 다른 사장님 PC와 섞이지 않음)"); }
+                    catch (Exception ex) { StockLog("※ 판매 자료를 못 넣음: " + ex.Message); }
+                }
             })));
+            top.Controls.Add(Note("학습 자료는 PC마다 따로입니다 (업데이트로 다른 PC에 안 감). [내 판매 자료 넣기] 엑셀: 첫 줄에 '상품명'·'검색어' 열 (있으면 '상품번호'·'검색량'·'주문수'도). 시트 이름에 '쿠팡'이 있으면 쿠팡 자료. 검색어는 한 칸에 쉼표로 여러 개 가능."));
             stockTab.Controls.Add(stockLog); stockTab.Controls.Add(grid); stockTab.Controls.Add(top);
         }
 

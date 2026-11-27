@@ -11,7 +11,7 @@ namespace SalesTool
     //  - 다른 상품 묶음의 검색어: 시작 단어(유산균)가 든 조합어만, 붙은 말(공복·저녁·장용성100억·가세리)이 이 상품에 맞을 때만
     //    (숫자·원료·균 이름은 이 상품 상품명·상세에 있어야 함, 시간대·일반 대상 말은 그대로)
     //  - 오타 분류: 실제 검색량이 있는 오타(가르니시아·콘드레이친)는 넣음. 해시태그 분류(살빼는약 등)는 안 씀
-    //  사전 파일은 깃허브에 올리지 않음 (사장님 자료) — 다른 PC는 같은 파일을 프로그램 폴더에 복사
+    //  사전 파일은 깃허브·업데이트 파일에 안 들어감 (PC마다 그 사장님 자료). 다른 사장님 PC에 복사하지 말 것 — 각자 [내 판매 자료 넣기]로 자기 엑셀을 넣음
     //  - 광고 분류: 쿠팡 광고로 실제 주문이 난 검색어(o = 주문수). 검증된 말이라 맨 앞. 광고브랜드(경쟁 브랜드 검색어)는 광고 입찰용으로만 두고 상품명에는 안 씀
     public class BookKw { public string w; public long v; public long t = -1; public string c; public int o; }
     public class BookTopic { public string m; public List<string> codes = new List<string>(); public string cat; public List<BookKw> kws = new List<BookKw>(); public List<string> names = new List<string>(); }
