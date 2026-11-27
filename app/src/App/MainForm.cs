@@ -618,15 +618,17 @@ namespace SalesTool
 
             // 상품명 (사업자별 차별화)
             flow.Controls.Add(Section("상품명 (사업자별 차별화)"));
-            foreach (var plan in set.Accounts.Where(a => a.Use))
+            // 사업자 3개 모두 표시 (휴대폰앱과 같게). '사용 안 함' 사업자도 상품명은 보이고 고칠 수 있음 (등록만 안 함)
+            foreach (var plan in set.Accounts)
             {
                 string bInfo = string.IsNullOrWhiteSpace(plan.BusinessId) ? "" : " - " + plan.BusinessId;
                 string sInfo = string.IsNullOrWhiteSpace(plan.NameStyle) ? "기본" : plan.NameStyle;
-                flow.Controls.Add(new Label { Text = "■ #" + plan.Id + " 사업자" + bInfo + " (스타일: " + sInfo + ")", AutoSize = true, Font = Fnt(9.5f, FontStyle.Bold), ForeColor = Color.FromArgb(40, 70, 140), Margin = new Padding(4, 6, 0, 2) });
+                flow.Controls.Add(new Label { Text = "■ #" + plan.Id + " 사업자" + bInfo + " (스타일: " + sInfo + ")" + (plan.Use ? "" : "  — 설정에서 '사용 안 함' (자동 등록 X, 상품명만 보기·수정)"), AutoSize = true, Font = Fnt(9.5f, FontStyle.Bold), ForeColor = plan.Use ? Color.FromArgb(40, 70, 140) : Color.FromArgb(110, 110, 110), Margin = new Padding(4, 6, 0, 2) });
                 foreach (var key in NameKeys.Where(k => k.Substring(1, 1) == plan.Id))
                 {
-                    if (key.StartsWith("n") && !plan.Counts(plan.NaverCounts).Contains(int.Parse(key.Substring(3)))) continue;
-                    if (key.StartsWith("c") && plan.Counts(plan.CoupangCounts).Count == 0) continue;
+                    bool has = job.Names.ContainsKey(key) && !string.IsNullOrWhiteSpace(job.Names[key]);
+                    if (key.StartsWith("n") && !has && !plan.Counts(plan.NaverCounts).Contains(int.Parse(key.Substring(3)))) continue;
+                    if (key.StartsWith("c") && !has && plan.Counts(plan.CoupangCounts).Count == 0) continue;
                     string v; job.Names.TryGetValue(key, out v);
                     int max = Naming.MaxLen(key);
                     bool two = key.StartsWith("c");
