@@ -682,12 +682,12 @@ namespace SalesTool
                 }
             });
 
-            var btnShop2Fill = Btn("⚡ 의사·약사·유명인 20개 재주입", () =>
+            var btnShop2Fill = Btn("⚡ 유명인·브랜드 20개 재주입", () =>
             {
                 if (job.CoupangTags2 != null && job.CoupangTags2.Count > 0)
                 {
                     tagsBox2.Text = string.Join(", ", job.CoupangTags2);
-                    Status("쿠팡 #2에 의사·약사·유명인 키워드 20개를 자동 주입했습니다.");
+                    Status("쿠팡 #2에 유명인·의사·약사·브랜드·상품명 키워드 20개를 자동 주입했습니다.");
                 }
             });
 
@@ -701,10 +701,10 @@ namespace SalesTool
             });
 
             flow.Controls.Add(Row(Lbl("쿠팡 #1 (질병·치료)", 130), tagsBox, tagCount, btnShop1Fill));
-            flow.Controls.Add(Row(Lbl("쿠팡 #2 (의사·약사·유명인)", 150), tagsBox2, tagCount2, btnShop2Fill));
+            flow.Controls.Add(Row(Lbl("쿠팡 #2 (유명인·브랜드·상품명)", 170), tagsBox2, tagCount2, btnShop2Fill));
             flow.Controls.Add(Row(Lbl("쿠팡 #3 (급상승 순)", 130), tagsBox3, tagCount3, btnShop3Fill));
             flow.Controls.Add(Row(Lbl("", 130), btnTrendRank));
-            flow.Controls.Add(Note("쿠팡 3개 샵 전자동 풀링: #1 질병·치료, #2 의사·약사·유명인(노인·수험생 등 대상군 제외), #3 급상승 키워드가 월검색수 > 30 조건 및 상품명 안전단어 제외 규칙으로 20개씩 100% 자동 채워집니다."));
+            flow.Controls.Add(Note("쿠팡 3개 샵 전자동 풀링: #1 질병·치료, #2 유명인·의사·약사·브랜드·상품명(대상군 제외), #3 급상승 키워드가 월검색수 > 30 조건 및 상품명 안전단어 제외 규칙으로 20개씩 100% 자동 채워집니다."));
 
             // 가격
             flow.Controls.Add(Section("가격 (가격설정기 식 · 하한선 " + (job.FloorReason ?? "없음") + ")"));

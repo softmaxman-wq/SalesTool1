@@ -1327,6 +1327,16 @@ namespace SalesTool
                             if (!celebSeedKeywords.Contains(cw1)) celebSeedKeywords.Add(cw1);
                         }
                     }
+                    // 이 카테고리 경쟁 인기 브랜드 + 핵심어 조합도 후보로 추가 (예: 종근당 유산균, 락토핏 유산균 등)
+                    foreach (var fb in firstWords.Take(12))
+                    {
+                        foreach (var cc in celebCores)
+                        {
+                            string bw = fb + " " + cc;
+                            if (bw.Length <= 20 && !celebSeedKeywords.Contains(bw)) celebSeedKeywords.Add(bw);
+                        }
+                        if (fb.Length >= 2 && fb.Length <= 20 && !celebSeedKeywords.Contains(fb)) celebSeedKeywords.Add(fb);
+                    }
                     foreach (var cw in celebSeedKeywords)
                     {
                         if (!cand.Any(x => x.Key.Equals(cw, StringComparison.OrdinalIgnoreCase)))
@@ -1353,7 +1363,7 @@ namespace SalesTool
                     }
 
                     // 추가 검색어 후보들의 검색량도 조회하여 월간검색량 30 초과 확보
-                    var unkWords = celebSeedKeywords.Concat(cand.Select(x => x.Key)).Concat(tags).Concat(extra).Concat(celebSeedKeywords).Where(w => !volMap.ContainsKey(SearchAd.Clean(w)) && w.Length >= 2 && w.Length <= 20).Distinct(StringComparer.OrdinalIgnoreCase).Take(200).ToList();
+                    var unkWords = celebSeedKeywords.Concat(cand.Select(x => x.Key)).Concat(tags).Concat(extra).Where(w => !volMap.ContainsKey(SearchAd.Clean(w)) && w.Length >= 2 && w.Length <= 20).Distinct(StringComparer.OrdinalIgnoreCase).Take(250).ToList();
                     if (unkWords.Count > 0)
                     {
                         try
@@ -1508,28 +1518,70 @@ namespace SalesTool
                     // 4순위: 그래도 20개가 안 되면 쿠팡 자동완성 실제 검색어로 (앞 샵이 안 쓴 말 먼저)
                     foreach (var w in autoPool.Where(x => true).Concat(autoPool)) { if (tags1.Count >= 20) break; if (seen1.Add(w)) tags1.Add(w); }
 
-                    // ── [쿠팡 #2 샵]: 의사/약사/연예인/유명인 키워드 전자동 즉시 주입 (월간검색량 > 30 필수, 검색량 내림차순)
+                    // ── [쿠팡 #2 샵]: 유명인·의사·약사 + 브랜드명·상품명 키워드 전자동 즉시 주입 (월간검색량 > 30 필수, 검색량 내림차순)
                     // 노인, 수험생, 여자, 남자 등 일반 대상군은 엄격 배제!
                     var personRel = relKeys.Concat(new[] { Key(CategoryCoreWord(job) ?? "") }).Where(x => x.Length >= 2).Distinct().ToList();
+                    Func<string, bool> brandPersonFits = w =>
+                    {
+                        string k = Key(w);
+                        if (k.Length < 2 || !personaFits(w) || audienceRe.IsMatch(w)) return false;
+                        if (imported && Regex.IsMatch(k, "국산|국내산")) return false;
+                        if (Regex.IsMatch(k, @"^(국|국내|수입|외국|스페인|미국|중국|캐나다|호주|뉴질랜드|독일|프랑스|이탈리아|일본|인도|칠레|페루|베트남|태국|덴마크|노르웨이|영국|네덜란드)산$")) return false;
+                        if (k.Length < 3 && !relKeys.Contains(k)) return false;
+                        var otherType = Regex.Match(k, "고양이|강아지|반려|애견|애묘|츄르|사료|펫|치약|가글|염색약|샴푸|린스|스프레이|화장품|크림|로션|팩|음료|요구르트|요거트|우유|아이스크림|과자|사탕|젤리");
+                        if (otherType.Success && !Key(job.Name).Contains(otherType.Value) && Naming.Occ(job.OcrText, otherType.Value) < 2) return false;
+                        return true;
+                    };
+                    Func<string, bool> isPersonOrBrandRel = w =>
+                        personRel.Any(x => Key(w).Contains(x))
+                        || (ForcedCatPath(job) != null && Key(w).Contains("유산균"));
+
+                    // 1) 의사·약사·연예인·유명인 키워드 (이 상품 핵심어와 맞거나 유명인+대표브랜드/상품명 포함)
                     var personWords = cand.Select(x => x.Key)
                         .Where(w => w.Length >= 2 && w.Length <= 20 && volMap.ContainsKey(SearchAd.Clean(w)) && volMap[SearchAd.Clean(w)] > 30)
-                        .Where(w => !audienceRe.IsMatch(w)) // 노인, 수험생, 여자, 남자 등 대상군 단어 엄격 제외!
-                        .Where(w => personRel.Any(x => Key(w).Contains(x)) && (relevant(w)
-                            // 유산균 상품: 시작 단어가 '프로바이오틱스 캡슐'이어도 사람들은 '유재석 유산균'으로 찾음
-                            || (ForcedCatPath(job) != null && Key(w).Contains("유산균") && personaFits(w) && !otherBrand(w)))) // 이 상품 말이 붙은 인물 검색어만 (김종국 프로틴·여에스더 글루타치온은 유산균 상품과 안 맞음)
+                        .Where(brandPersonFits)
                         .Where(w => {
                             string rk = riskWhy(w);
                             return rk == "인물" || personK.Any(p => Key(w).Contains(p)) || celebRe.IsMatch(w);
                         })
                         .Distinct(StringComparer.OrdinalIgnoreCase)
+                        .OrderByDescending(w => isPersonOrBrandRel(w) ? 1 : 0)
+                        .ThenByDescending(w => volMap[SearchAd.Clean(w)])
+                        .ToList();
+
+                    // 2) 유명 브랜드명 및 타 상품명 키워드 (카테고리/연관 키워드에서 발굴된 브랜드·상품명 중 검색량 > 30)
+                    var brandProductWords = cand.Select(x => x.Key)
+                        .Where(w => w.Length >= 2 && w.Length <= 20 && volMap.ContainsKey(SearchAd.Clean(w)) && volMap[SearchAd.Clean(w)] > 30)
+                        .Where(brandPersonFits)
+                        .Where(w => !askedQ.Contains(Key(w)))
+                        .Where(w => {
+                            if (otherBrand(w)) return true;
+                            KwRow row;
+                            return rowByKey.TryGetValue(Key(w), out row) && row.Excluded == "브랜드";
+                        })
+                        .Distinct(StringComparer.OrdinalIgnoreCase)
+                        .OrderByDescending(w => isPersonOrBrandRel(w) ? 1 : 0)
+                        .ThenByDescending(w => volMap[SearchAd.Clean(w)])
+                        .ToList();
+
+                    var coreCombined2 = personWords.Where(isPersonOrBrandRel)
+                        .Concat(brandProductWords.Where(isPersonOrBrandRel))
+                        .Distinct(StringComparer.OrdinalIgnoreCase)
                         .OrderByDescending(w => volMap[SearchAd.Clean(w)])
                         .ToList();
-                    job.PersonWords = personWords;
+                    var restCombined2 = personWords
+                        .Concat(brandProductWords)
+                        .Distinct(StringComparer.OrdinalIgnoreCase)
+                        .OrderByDescending(w => volMap[SearchAd.Clean(w)])
+                        .ToList();
+                    job.PersonWords = coreCombined2.Concat(restCombined2).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
 
                     var tags2 = new List<string>();
                     var seen2 = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-                    // 1순위: 의사·약사·연예인·유명인 키워드 우선 채우기 (월간검색량 > 30 내림차순, 대상군 단어 제외)
-                    foreach (var w in personWords) { if (tags2.Count >= 20) break; if (seen2.Add(w)) tags2.Add(w); }
+                    // 1순위: 이 상품 핵심어가 포함된 유명인·의사·약사 + 브랜드명·상품명 키워드 (월간검색량 > 30 내림차순)
+                    foreach (var w in coreCombined2) { if (tags2.Count >= 20) break; if (seen2.Add(w)) tags2.Add(w); }
+                    // 2순위: 대표 유명인 + 인기 브랜드/상품명 키워드 (월간검색량 > 30 내림차순)
+                    foreach (var w in restCombined2) { if (tags2.Count >= 20) break; if (seen2.Add(w)) tags2.Add(w); }
                     // 2순위: 20개 미달 시 semiSafePool에서 보충하되, 대상군(노인, 수험생, 여자, 남자 등)은 철저히 제외!
                     foreach (var w in semiSafePool.Where(x => !tags1.Contains(x, StringComparer.OrdinalIgnoreCase) && !audienceRe.IsMatch(x)).Concat(semiSafePool.Where(x => !audienceRe.IsMatch(x))))
                     {
