@@ -24,7 +24,7 @@ namespace SalesTool
         readonly Random rnd = new Random();
 
         // 상품명·키워드 규칙을 바꿀 때마다 올림 → 예전 규칙으로 만든 초안은 켤 때 자동으로 다시 만듦
-        public const int RulesVersion = 53;
+        public const int RulesVersion = 54;
 
         // 네이버 쇼핑을 실제로 열었을 때만 쉼 (저장된 결과를 다시 쓴 경우는 바로 다음으로)
         Task ShopPause() { return shop != null && shop.LastCached ? Task.FromResult(0) : Task.Delay(2000 + rnd.Next(1500)); }
@@ -1581,7 +1581,8 @@ namespace SalesTool
                         return w.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries).Any(t => catBrand(Key(t))) || catBrand(k);
                     };
                     personWords = personWords.Where(kindFits).ToList();
-                    brandProductWords = brandProductWords.Where(kindFits).ToList();
+                    // 브랜드·상품명만 있는 말(영진약품·솔잎농축액)은 이 상품 말과 함께 쓰인 것만 (락토핏 유산균 O)
+                    brandProductWords = brandProductWords.Where(w => kindFits(w) && isPersonOrBrandRel(w)).ToList();
                     var coreCombined2 = personWords.Where(isPersonOrBrandRel)
                         .Concat(brandProductWords.Where(isPersonOrBrandRel))
                         .Distinct(StringComparer.OrdinalIgnoreCase)
