@@ -24,7 +24,7 @@ namespace SalesTool
         readonly Random rnd = new Random();
 
         // 상품명·키워드 규칙을 바꿀 때마다 올림 → 예전 규칙으로 만든 초안은 켤 때 자동으로 다시 만듦
-        public const int RulesVersion = 54;
+        public const int RulesVersion = 55;
 
         // 네이버 쇼핑을 실제로 열었을 때만 쉼 (저장된 결과를 다시 쓴 경우는 바로 다음으로)
         Task ShopPause() { return shop != null && shop.LastCached ? Task.FromResult(0) : Task.Delay(2000 + rnd.Next(1500)); }
@@ -1327,6 +1327,20 @@ namespace SalesTool
                             if (!celebSeedKeywords.Contains(cw1)) celebSeedKeywords.Add(cw1);
                         }
                     }
+                    // 이 상품 특징이 붙은 말(혈당유산균·어린이유산균·질유래유산균)에 유명인을 붙인 검색어: 상품마다 달라짐
+                    string coreLast = celebCores.Last();
+                    var featureWords = (job.Names ?? new Dictionary<string, string>()).Where(kv => kv.Key.StartsWith("n"))
+                        .SelectMany(kv => Regex.Split(kv.Value ?? "", @"\s+"))
+                        .Where(t => t.Length >= coreLast.Length + 1 && t.Length <= 12 && t.Contains(coreLast) && Key(t) != Key(coreLast) && !Regex.IsMatch(t, @"^\d"))
+                        .GroupBy(t => t).OrderByDescending(g => g.Count()).Select(g => g.Key).Take(4).ToList();
+                    var featureCombos = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                    foreach (var fw in featureWords)
+                        foreach (var cn in new[] { "여에스더", "유재석", "오은영", "서재걸", "고약사", "약들약", "남재현", "리틀약사", "약사추천" })
+                        {
+                            string fc = cn + " " + fw;
+                            featureCombos.Add(fc);
+                            if (!celebSeedKeywords.Contains(fc)) celebSeedKeywords.Insert(0, fc);
+                        }
                     // 이 카테고리 경쟁 인기 브랜드 + 핵심어 조합도 후보로 추가 (예: 종근당 유산균, 락토핏 유산균 등)
                     foreach (var fb in firstWords.Take(12))
                     {
@@ -1597,10 +1611,19 @@ namespace SalesTool
 
                     var tags2 = new List<string>();
                     var seen2 = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-                    // 1순위: 이 상품 핵심어가 포함된 유명인·의사·약사 + 브랜드명·상품명 키워드 (월간검색량 > 30 내림차순)
-                    foreach (var w in coreCombined2) { if (tags2.Count >= 20) break; if (seen2.Add(w)) tags2.Add(w); }
-                    // 2순위: 대표 유명인 + 인기 브랜드/상품명 키워드 (월간검색량 > 30 내림차순)
-                    foreach (var w in restCombined2) { if (tags2.Count >= 20) break; if (seen2.Add(w)) tags2.Add(w); }
+                    // 상품마다 다르게: ① 이 상품 특징이 붙은 유명인 검색어 ② 검색량 가장 큰 4개만 모든 상품 공통
+                    //  ③ 나머지는 다른 상품이 덜 쓴 말부터 (한 말은 쿠팡 #2 상품의 약 3분의 1까지만)
+                    var ledger2 = KeywordLedger.Load();
+                    int shopN = ledger2.Tag2Products(job.Code) + 1;
+                    int cap2 = Math.Max(2, (int)Math.Ceiling(shopN / 3.0));
+                    var personAll = coreCombined2.Concat(restCombined2).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+                    var featPick = personAll.Where(w => featureCombos.Contains(w)).ToList();
+                    var commonPick = personAll.Where(w => !featureCombos.Contains(w)).OrderByDescending(w => volMap[SearchAd.Clean(w)]).Take(4).ToList();
+                    var rotatePick = personAll.Where(w => !featureCombos.Contains(w) && !commonPick.Contains(w, StringComparer.OrdinalIgnoreCase))
+                        .Where(w => ledger2.Tag2Uses(w, job.Code) < cap2)
+                        .OrderBy(w => ledger2.Tag2Uses(w, job.Code))
+                        .ThenByDescending(w => volMap[SearchAd.Clean(w)]).ToList();
+                    foreach (var w in featPick.Concat(commonPick).Concat(rotatePick)) { if (tags2.Count >= 20) break; if (seen2.Add(w)) tags2.Add(w); }
                     // 2순위: 20개 미달 시 semiSafePool에서 보충하되, 대상군(노인, 수험생, 여자, 남자 등)은 철저히 제외!
                     foreach (var w in semiSafePool.Where(x => !tags1.Contains(x, StringComparer.OrdinalIgnoreCase) && !audienceRe.IsMatch(x)).Concat(semiSafePool.Where(x => !audienceRe.IsMatch(x))))
                     {
@@ -1656,7 +1679,7 @@ namespace SalesTool
                     job.CoupangTags = tags1; // 기본 #1 샵 태그
                     job.DraftTags = new List<string>(job.CoupangTags);
 
-                    KeywordLedger.Record(job.Code, null, job.CoupangTags1.Concat(job.CoupangTags2).Concat(job.CoupangTags3));
+                    KeywordLedger.Record(job.Code, null, job.CoupangTags1.Concat(job.CoupangTags2).Concat(job.CoupangTags3), job.CoupangTags2);
                 }
                 catch
                 {
