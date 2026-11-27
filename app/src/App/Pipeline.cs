@@ -24,7 +24,7 @@ namespace SalesTool
         readonly Random rnd = new Random();
 
         // 상품명·키워드 규칙을 바꿀 때마다 올림 → 예전 규칙으로 만든 초안은 켤 때 자동으로 다시 만듦
-        public const int RulesVersion = 51;
+        public const int RulesVersion = 52;
 
         // 네이버 쇼핑을 실제로 열었을 때만 쉼 (저장된 결과를 다시 쓴 경우는 바로 다음으로)
         Task ShopPause() { return shop != null && shop.LastCached ? Task.FromResult(0) : Task.Delay(2000 + rnd.Next(1500)); }
@@ -365,6 +365,10 @@ namespace SalesTool
             // 상세 페이지 검증: 상세(또는 msgood 상품명)에 나온 말인지 먼저 표시 → 나온 말만 네이버에서 확인 (빠르게)
             int seedOccF = Math.Max(3, Naming.Occ(job.OcrText, seed));
             var companies = Naming.CompanyWords(job.OcrText);
+            // 상품 종류 이름(유산균·프로바이오틱스)은 브랜드가 아님: '유산균의아침' 같은 브랜드 때문에 '유산균'이 든 말이 모두 빠졌음
+            var kindWords = new HashSet<string>(new[] { Key(seed), Key((seed ?? "").Split(' ')[0]), Key(CategoryCoreWord(job) ?? "") }.Where(x => x.Length >= 2));
+            if (ForcedCatPath(job) != null) foreach (var x in new[] { "유산균", "프로바이오틱스", "생유산균", "바이오틱스" }) kindWords.Add(x);
+            companies.RemoveWhere(c => kindWords.Contains(c));
             foreach (var k in rows.Skip(1))
             {
                 k.Mentioned = Key(k.Word).Length >= 2 && Naming.StrictMention(job.Name, job.OcrText, k.Word);
@@ -387,13 +391,14 @@ namespace SalesTool
                 var ws = Regex.Split((job.Name ?? "").Trim(), @"\s+");
                 if (FirstIsMaker(job) && !Key(ws[0]).Contains(Key(seed))) brands.Add(Key(ws[0]));
             }
+            brands.RemoveAll(b => kindWords.Contains(b));
             // 상품 이름표(브레인레스큐·허니드)와 그 앞 조각(브레인)
             var nameBrands = NameBrandTokens(job, seed, rows);
             foreach (var r in rows.Skip(1))
             {
                 string k = Key(r.Word);
                 if (learn.IsPreferred(r.Word)) continue;   // 직접 상품명에 넣기로 한 말 (브랜드 아님: 오나오)
-                if (brands.Any(b => k == b || k.Contains(b)) || Naming.IsKnownBrand(r.Word) || IsBrandPiece(r.Word, nameBrands)) r.Excluded = "브랜드";
+                if (!kindWords.Contains(k) && (brands.Any(b => k == b || k.Contains(b)) || Naming.IsKnownBrand(r.Word) || IsBrandPiece(r.Word, nameBrands))) r.Excluded = "브랜드";
                 else if (learn.IsBrand(r.Word)) r.Excluded = "브랜드(학습)";
                 else if (learn.IsExcluded(r.Word)) r.Excluded = "전에 뺀 단어";
             }
@@ -426,7 +431,7 @@ namespace SalesTool
                         todo[i].Total = p.Total;
                         // 그 단어로 검색했을 때 브랜드 목록에 그 단어가 있으면 다른 회사 제품·브랜드 이름 (덴티백·코어맥스 등)
                         string wk = Key(todo[i].Word);
-                        if (p.Brands.Any(b => Key(b) == wk))
+                        if (p.Brands.Any(b => Key(b) == wk) && !kindWords.Contains(wk))
                             todo[i].Excluded = "브랜드";
                         if (leaf != null)
                         {
