@@ -494,6 +494,8 @@ namespace SalesTool
         // ── 검토 화면
         DataGridView kwGrid;
         Dictionary<string, TextBox> nameBoxes = new Dictionary<string, TextBox>();
+        volatile bool shopCountBusy;
+        bool ShopCountCaptcha() { try { string f = Path.Combine(Store.Dir, "shopcount_status.txt"); return shopCountBusy && File.Exists(f) && File.ReadAllText(f).Contains("보안 확인"); } catch { return false; } }
         TextBox[] priceBoxes = new TextBox[7];
         TextBox seedBox, naverCatBox, coupangCatBox, volumeBox, tagsBox, tagsBox2, tagsBox3;
         CheckBox healthBox;
@@ -536,6 +538,9 @@ namespace SalesTool
             if (job.Wholesale > 0) info.Add("판매가 " + Won(job.SalePrice) + " · 도매가 " + Won(job.Wholesale) + " · 배송비 " + Won(job.Shipping));
             if (!string.IsNullOrEmpty(job.Notice)) info.Add("조건: " + job.Notice);
             flow.Controls.Add(Note(string.Join("   |   ", info)));
+            if (job.CoupangBanned)
+                flow.Controls.Add(new Label { AutoSize = true, Font = BoldFont, ForeColor = Color.FromArgb(200, 40, 40), Margin = new Padding(3, 2, 3, 2),
+                    Text = "⛔ msgood '쿠팡등록금지' 상품 → 쿠팡에는 올리지 않고 네이버에만 등록합니다." });
             if (job.NaverCatName != null || job.CoupangCatName != null)
                 flow.Controls.Add(new Label { AutoSize = true, Font = BoldFont, ForeColor = Color.FromArgb(30, 60, 120), Margin = new Padding(3, 2, 3, 2),
                     Text = "등록 카테고리 → 네이버: " + (job.NaverCatName ?? "-") + "   |   쿠팡: " + (job.CoupangCatName ?? "-") });
@@ -1323,6 +1328,37 @@ namespace SalesTool
             Func<string, Job> find = c => jobs.FirstOrDefault(j => j.Code == (c ?? "").Trim());
             switch (path)
             {
+                case "/api/shopcount":
+                {
+                    // 이 PC 판매도구 폴더의 shopcount_in.txt(한 줄에 검색어 하나) → shopcount_out.txt(검색어	상품수), 진행 상황은 shopcount_status.txt
+                    if (shopCountBusy) return J(new { ok = false, msg = "이미 읽는 중" });
+                    if (jobs.Any(j => j.Status == "진행 중")) return J(new { ok = false, msg = "작업 진행 중" });
+                    string inP = Path.Combine(Store.Dir, "shopcount_in.txt"), outP = Path.Combine(Store.Dir, "shopcount_out.txt"), stP = Path.Combine(Store.Dir, "shopcount_status.txt");
+                    if (!File.Exists(inP)) return J(new { ok = false, msg = "shopcount_in.txt 없음" });
+                    var words = File.ReadAllLines(inP, System.Text.Encoding.UTF8).Select(x => x.Trim()).Where(x => x.Length > 0).Distinct().ToList();
+                    var done = File.Exists(outP) ? new HashSet<string>(File.ReadAllLines(outP, System.Text.Encoding.UTF8).Select(x => x.Split('	')[0])) : new HashSet<string>();
+                    var todo = words.Where(w => !done.Contains(w)).ToList();
+                    shopCountBusy = true;
+                    BeginInvoke(new Action(async () =>
+                    {
+                        int n = 0;
+                        try
+                        {
+                            foreach (var w in todo)
+                            {
+                                n++;
+                                File.WriteAllText(stP, "읽는 중 " + n + "/" + todo.Count + " " + w, System.Text.Encoding.UTF8);
+                                var p = await pipeline.ShopCount(w, m => { try { File.WriteAllText(stP, "읽는 중 " + n + "/" + todo.Count + " " + w + " | " + m, System.Text.Encoding.UTF8); } catch { } });
+                                File.AppendAllText(outP, w + "	" + (p == null ? -1 : p.Total) + Environment.NewLine, System.Text.Encoding.UTF8);
+                                if (!pipeline.LastShopCached) await Task.Delay(1500);
+                            }
+                            File.WriteAllText(stP, "끝 " + todo.Count, System.Text.Encoding.UTF8);
+                        }
+                        catch (Exception ex) { try { File.WriteAllText(stP, "멈춤 " + n + "/" + todo.Count + " " + ex.Message, System.Text.Encoding.UTF8); } catch { } }
+                        finally { shopCountBusy = false; }
+                    }));
+                    return J(new { ok = true, todo = todo.Count });
+                }
                 case "/api/status":
                 {
                     var rec = OrderSync.LoadRecord();
@@ -1330,7 +1366,7 @@ namespace SalesTool
                     List<string> logs; lock (recentLog) logs = recentLog.Skip(Math.Max(0, recentLog.Count - 30)).ToList();
                     return J(new { today = TodayCount(), limit = set.DailyLimit, waiting = jobs.Count(j => j.Status == "대기"), review = jobs.Count(j => j.Status == "검토 대기"),
                         running = run == null ? null : new { code = run.Code, step = run.Step }, paused,
-                        captcha = run != null && (run.Step ?? "").Contains("보안 확인"), autoOrder = set.AutoOrder, ordered = rec.Done.Count,
+                        captcha = (run != null && (run.Step ?? "").Contains("보안 확인")) || ShopCountCaptcha(), autoOrder = set.AutoOrder, ordered = rec.Done.Count,
                         tracked = rec.Done.Values.Count(d => !string.IsNullOrEmpty(d.Tracking)), pending = rec.Pending.Count, lastShortage = rec.LastShortage, log = logs,
                         schedule = OrderScheduleText, nextOrder = NextOrderSlot() });
                 }

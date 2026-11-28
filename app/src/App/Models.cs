@@ -55,6 +55,8 @@ namespace SalesTool
         public List<string> DetailUrls = new List<string>();
         public long SalePrice, Wholesale, Shipping;
         public long Floor; public string FloorReason;
+        // msgood 안내에 '쿠팡등록금지'가 있으면 쿠팡에는 올리지 않음 (네이버만)
+        public bool CoupangBanned { get { return System.Text.RegularExpressions.Regex.IsMatch(Notice ?? "", @"쿠팡\s*(등록|판매)\s*금지"); } }
         public bool NeedPrice;                // msgood4u 로그인 없이 만들어서 도매가·가격이 아직 없음 (로그인 후 [가격 다시 계산])
 
         // 키워드·상품명

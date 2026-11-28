@@ -62,6 +62,10 @@ namespace SalesTool
             shop = new PriceCompare(naverView);
         }
 
+        // 검색어의 네이버 쇼핑 상품 수만 읽기 (블루오션 키워드 조사용)
+        public bool LastShopCached { get { return shop.LastCached; } }
+        public Task<PageResult> ShopCount(string q, Action<string> report) { return shop.Read(q, false, report, () => false, null, false); }
+
         const string Surnames = "김이박최정강조윤장임한오서신권황안송류전홍고문양손배백허유남심노하곽성차주우구민진지엄채원천방공현함변염여추도소석선설마길연위표명기반왕금옥육인맹제모탁국어은편용예봉경";
 
         static string Key(string s) { return Regex.Replace(s ?? "", @"[^0-9A-Za-z가-힣]", "").ToLowerInvariant(); }

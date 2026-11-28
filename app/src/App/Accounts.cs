@@ -133,7 +133,9 @@ namespace SalesTool
                 }
 
                 var counts = plan.Counts(plan.CoupangCounts);
-                if (counts.Count > 0)
+                if (counts.Count > 0 && job.CoupangBanned)
+                    job.Results.Add("– #" + a + " 쿠팡: msgood '쿠팡등록금지' 상품이라 올리지 않았습니다 (네이버만 등록)");
+                else if (counts.Count > 0)
                 {
                     string key = "c" + a;
                     string label = "#" + a + " 쿠팡 " + string.Join("·", counts) + "개";
