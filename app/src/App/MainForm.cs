@@ -496,6 +496,7 @@ namespace SalesTool
             var ui = new System.Windows.Forms.Timer { Interval = 1000 };
             ui.Tick += (s, e) => System.Threading.Interlocked.Exchange(ref uiTick, DateTime.Now.Ticks);
             ui.Start();
+            var uiThread = System.Threading.Thread.CurrentThread;
             var th = new System.Threading.Thread(() =>
             {
                 bool logged = false;
@@ -513,6 +514,11 @@ namespace SalesTool
                             try { var j = jobs.ToArray().FirstOrDefault(x => x != null && x.Status == "진행 중"); if (j != null) run = j.Code + " " + (j.Step ?? ""); } catch { }
                             int n = 0; try { n = Process.GetProcessesByName(Process.GetCurrentProcess().ProcessName).Length; } catch { }
                             File.AppendAllText(Path.Combine(Store.Dir, "freeze.log"), DateTime.Now.ToString("MM-dd HH:mm:ss") + " 응답없음 시작 | 만드는 상품: " + run + " | 상태줄: " + lastStatus + " | 공유폴더: " + (set.SharedFolder ?? "") + " | 판매도구 켜진 개수: " + n + Environment.NewLine);
+                            string stack = "";
+#pragma warning disable 618
+                            try { uiThread.Suspend(); try { stack = new StackTrace(uiThread, true).ToString(); } finally { uiThread.Resume(); } } catch (Exception ex) { stack = "(위치를 못 읽음: " + ex.Message + ")"; }
+#pragma warning restore 618
+                            File.AppendAllText(Path.Combine(Store.Dir, "freeze.log"), "  멈춘 곳:" + Environment.NewLine + stack + Environment.NewLine);
                         }
                         else if (sec < 3 && logged)
                         {

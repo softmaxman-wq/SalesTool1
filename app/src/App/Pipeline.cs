@@ -280,7 +280,7 @@ namespace SalesTool
 
             // 4. 상품명·가격
             step("5/6 상품명·가격 만드는 중");
-            MakeNames(job);
+            await MakeNamesSafe(job);
             try { await FillNameTotals(job, step); } catch { }
             job.DraftNames = new Dictionary<string, string>(job.Names);
             try { await MakeTags(job, step); }
@@ -875,6 +875,33 @@ namespace SalesTool
             return k.Length >= 2 && brands.Any(b => b.Length >= 2 && (k.Contains(b) || (k.Length >= 3 && b.Length > k.Length && b.StartsWith(k))));
         }
 
+        // 상품명 만들기를 화면과 따로 돌림: 1분 넘게 안 끝나면 그 상품만 오류로 두고 다음 상품으로 (화면 '응답 없음' 방지)
+        //  멈춘 곳(코드 위치)은 freeze.log 에 남김
+        public async Task MakeNamesSafe(Job job)
+        {
+            Exception err = null;
+            var th = new System.Threading.Thread(() =>
+            {
+                try { MakeNames(job); }
+                catch (System.Threading.ThreadAbortException) { }
+                catch (Exception ex) { err = ex; }
+            }, 64 * 1024 * 1024) { IsBackground = true, Name = "MakeNames" };
+            th.Start();
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+            while (th.IsAlive && sw.Elapsed.TotalSeconds < 60) await Task.Delay(200);
+            if (th.IsAlive)
+            {
+                string stack = "";
+#pragma warning disable 618
+                try { th.Suspend(); try { stack = new System.Diagnostics.StackTrace(th, true).ToString(); } finally { th.Resume(); } } catch (Exception ex) { stack = "(위치를 못 읽음: " + ex.Message + ")"; }
+#pragma warning restore 618
+                try { th.Abort(); } catch { }
+                try { System.IO.File.AppendAllText(System.IO.Path.Combine(Store.Dir, "freeze.log"), DateTime.Now.ToString("MM-dd HH:mm:ss") + " 상품명 만들기 1분 넘음 [" + job.Code + "] PC번호 " + Naming.PcStyle + Environment.NewLine + stack + Environment.NewLine); } catch { }
+                throw new Exception("상품명 만들기가 1분 넘게 끝나지 않아 이 상품은 건너뜁니다 (freeze.log 에 기록). [다시 만들기]로 다시 해 볼 수 있습니다.");
+            }
+            if (err != null) throw err;
+        }
+
         public void MakeNames(Job job)
         {
             var set = settings();
@@ -1103,7 +1130,7 @@ namespace SalesTool
                 }
             }
             finally { showTab("review"); }
-            MakeNames(job);
+            await MakeNamesSafe(job);
         }
 
         // 쿠팡 검색어: 상품명에 못 쓴 단어(위험 단어·상품에 없는 말·브랜드, 월간검색량 많은 것)를 시작 단어와 붙여
@@ -1710,7 +1737,7 @@ namespace SalesTool
             if (reg != null && job.NaverCat != null)
                 await Task.Run(() => { try { job.NaverCatName = reg.NaverCategoryName(job.NaverCat); } catch { } });
             await FindKeywords(job, null, step);
-            MakeNames(job);
+            await MakeNamesSafe(job);
             try { await FillNameTotals(job, step); } catch { }
             job.DraftNames = new Dictionary<string, string>(job.Names);
             await MakeTags(job, step);
