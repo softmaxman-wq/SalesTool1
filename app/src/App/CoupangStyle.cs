@@ -112,7 +112,7 @@ namespace SalesTool
             Func<string, bool> plain = w => pwSet.Contains(w) || Regex.IsMatch(Key(w), "^(유산균|프로바이오틱스|프리바이오틱스|캡슐|분말|정|포|probiotics)$") || Key(w) == Key(seedHead);
             Func<List<string>, string, bool> inside = (ps, w) => !plain(w) && ps.Any(x => Key(x) != Key(w) && Key(x).Contains(Key(w)));
             var used = new HashSet<string>();
-            int i = 0;
+            int i = Naming.PcShift + Naming.PcStyle * 3;   // PC마다 상품명 번호만큼 돌림 (0 = 원래)
             foreach (var k in cKeys)
             {
                 // 지금 쿠팡 이름(변형 표기 뺌)을 앞에 두고, 영어 이름 → 기존 단어 → 대상·나이대 → 기간 순으로 채움. 계정마다 순서를 바꿈

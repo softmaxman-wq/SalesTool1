@@ -207,6 +207,9 @@ namespace SalesTool
             };
             orderTimer.Start();
             if (string.IsNullOrEmpty(set.MobileKey)) { set.MobileKey = NewKey(); Store.Save(Store.SettingsPath, set); }
+            if (set.PcStyle < 0) { set.PcStyle = new Random().Next(1, 1000); Store.Save(Store.SettingsPath, set); }
+            if (string.IsNullOrWhiteSpace(set.GithubRepo)) { set.GithubRepo = "softmaxman-wq/SalesTool1"; Store.Save(Store.SettingsPath, set); }
+            Naming.PcStyle = set.PcStyle;
             if (set.MobileOn) mobile.Start(set.MobilePort, () => set.MobileKey, OnMobile, StockLog);
             msgood = new MsgoodWeb(msgoodView);
             pipeline = new Pipeline(msgood, naverView, () => set, () => learned, ShowTab);
@@ -1026,7 +1029,8 @@ namespace SalesTool
             flow.Controls.Add(Note("사업자ID: PC 간 상품명 공유 기록에 남길 사업자 식별자 (예: 상호 또는 사업자번호).\n" +
                                    "상품명 스타일: 기본(키워드 순) / 브랜드 앞 / 효능 앞 / 함량 앞.\n" +
                                    "틀 상품: 그 계정에 이미 등록된 상품 하나(배송·반품·A/S·공지 설정을 그대로 복사). 스토어 개수는 1,2 까지, 쿠팡 개수는 1~6 중 쉼표로.\n" +
-                                   "#2·#3 키는 api_keys.json 의 naver_commerce_2 / coupang_2 (#3 은 _3) 칸에 넣습니다."));
+                                   "#2·#3 키는 api_keys.json 의 naver_commerce_2 / coupang_2 (#3 은 _3) 칸에 넣습니다.\n" +
+                                   "이 PC 상품명 번호: " + set.PcStyle + (set.PcStyle == 0 ? " (원래 방식)" : " (다른 PC와 같은 상품이어도 상품명 짜임·순서를 다르게 만듦)")));
 
             flow.Controls.Add(Section("공통"));
             var sharedBox = new TextBox { Width = 360, Text = set.SharedFolder ?? "" };

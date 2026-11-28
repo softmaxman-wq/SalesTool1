@@ -138,7 +138,9 @@ namespace SalesTool
         public int MobilePort = 8765;
         public string MobileKey;            // 휴대폰 앱 연결 키 (처음 켤 때 만듦)       // (자동 발주) 1·2·3차 마감 5분 전 발주(09:25·10:55·13:55), 송장은 19:00 (MainForm.OrderSlots)
         public string DefaultCourier = "CJ대한통운";   // msgood 송장에 택배사 이름이 없을 때      // 6시간마다 msgood4u 품절 목록을 보고 스토어 품절·판매 재개를 자동으로
-        public string GithubRepo = "";              // GitHub 저장소 (owner/repo) 자동 업데이트용
+        // PC마다 상품명 번호 (처음 켤 때 정함, 0 = 원래 방식). 같은 상품·같은 사업자 번호라도 PC마다 상품명 짜임·단어 순서가 달라짐
+        public int PcStyle = -1;
+        public string GithubRepo = "softmaxman-wq/SalesTool1";              // GitHub 저장소 (owner/repo) 자동 업데이트용
         public bool AutoUpdateCheck = true;         // 시작 시 자동 업데이트 확인
         public bool AutoAiImage = false;            // 대기열 상품 등록 시 AI 3D 대표이미지 자동 생성
         public string SharedFolder = "";            // 공유 키워드 기록 폴더 경로 (예: 구글 드라이브 폴더)

@@ -884,6 +884,10 @@ namespace SalesTool
             return joined;
         }
 
+        // PC마다 상품명 번호 (설정의 PcStyle). 0 = 원래 방식
+        public static int PcStyle = 0;
+        public static int PcShift { get { return PcStyle > 0 ? 1 + PcStyle % 2 : 0; } }
+
         public static Dictionary<string, string> BuildForAccounts(
             Job job,
             AppSettings set,
@@ -999,6 +1003,20 @@ namespace SalesTool
             d["n3_2"] = n3_2;
             d["c3"] = c3;
 
+            // PC마다 상품명 번호: 사업자 #1·#2·#3 이 쓰는 짜임을 돌려서 다른 PC(다른 사장님)의 같은 번호 사업자와 겹치지 않게
+            int sh = PcShift;
+            if (sh > 0)
+            {
+                var d2 = new Dictionary<string, string>();
+                for (int a = 1; a <= 3; a++)
+                {
+                    int src = (a - 1 + sh) % 3 + 1;
+                    foreach (var suf in new[] { "n{0}_1", "n{0}_2", "c{0}" })
+                    { string from = string.Format(suf, src), to = string.Format(suf, a), v; if (d.TryGetValue(from, out v)) d2[to] = v; }
+                }
+                foreach (var kv in d) if (!d2.ContainsKey(kv.Key)) d2[kv.Key] = kv.Value;
+                d = d2;
+            }
             return d;
         }
 

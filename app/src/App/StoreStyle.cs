@@ -146,8 +146,9 @@ namespace SalesTool
             else { typo.Add("프로바이오텍"); if (syn) typo.Add("신바이오텍"); }
 
             // 자리 채움: 기존 규칙이 고른 단어 중 뜻 없는 말·큰 검색어 나열·숫자 아닌 것
+            extra = extra.OrderByDescending(w => SalesBookImport.NameWordScore(w) > 0).ToList();
             var fill = (body ?? new List<string>()).Where(w => !Junk.Contains(w) && !Regex.IsMatch(w, @"\d") && Key(w).Length >= 2 && !Naming.IsInfoQuery(w) && !Naming.IsDisease(w) && !Regex.IsMatch(w, "고르는법|추천|순위|효능|부작용|먹는법|먹는시간") && !Weak.Contains(w) && !Drift(w, job) && (nameOk == null || nameOk(w)))
-                                                    .Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+                                                    .Distinct(StringComparer.OrdinalIgnoreCase).OrderByDescending(w => SalesBookImport.NameWordScore(w) > 0).ToList();
 
             // 사장님 사전 말(공복유산균·저녁유산균·장용성100억유산균): 네이버는 "유산균"을 떼고 붙은 말만 (저녁 식전 공복 혈당 유산균 — 사장님 상품명 방식, 반복 경고도 피함)
             var bookSet = new HashSet<string>((job.Keywords ?? new List<KwRow>()).Where(r => r.FromBook && r.Excluded == null).Select(r => Key(r.Word)));
@@ -166,7 +167,7 @@ namespace SalesTool
             string bifWord = bifido ? "비피더스균" : null;
 
             var used = new HashSet<string>();
-            int codeRot = (job.Code ?? "").Sum(ch => (int)ch) % 5;
+            int codeRot = (job.Code ?? "").Sum(ch => (int)ch) % 5 + Naming.PcStyle * 3;   // PC마다 상품명 번호만큼 더 돌림
             var accounts = job.Names.Keys.Where(k => Regex.IsMatch(k, @"^n\d+_\d+$")).OrderBy(k => k).ToList();
             foreach (var k in accounts)
             {
@@ -184,8 +185,9 @@ namespace SalesTool
                 foreach (var bm in R(bookMods.Take(6).ToList(), rot).Where(x => !Key(parts[0]).Contains(Key(x))).Take(4).ToList())   // 앞 조합어에 든 말(혈당유산균의 혈당)은 빼고
                     if (!parts.Any(x => Key(x) == Key(bm))) parts.Add(bm);
                 // 사업자마다 다른 짜임: 1=균 이름 중심, 2=대상·상황 중심, 3=영어·변형 표기 중심
-                if (a % 3 == 1) { parts.AddRange(S.Take(2)); if (bifWord != null) parts.Add(bifWord); parts.AddRange(Pe.Take(1)); if (P.Count > 1) parts.Add(P[1]); }
-                else if (a % 3 == 2) { parts.AddRange(Pe.Take(2)); if (P.Count > 1) parts.Add(P[1]); parts.AddRange(S.Take(1)); parts.AddRange(E.Take(1)); }
+                int sIdx = (a + Naming.PcShift) % 3;   // PC마다 사업자 짜임을 돌림 (0 = 원래)
+                if (sIdx == 1) { parts.AddRange(S.Take(2)); if (bifWord != null) parts.Add(bifWord); parts.AddRange(Pe.Take(1)); if (P.Count > 1) parts.Add(P[1]); }
+                else if (sIdx == 2) { parts.AddRange(Pe.Take(2)); if (P.Count > 1) parts.Add(P[1]); parts.AddRange(S.Take(1)); parts.AddRange(E.Take(1)); }
                 else { parts.AddRange(E.Take(1)); parts.AddRange(T.Take(v == 1 ? 1 : 0)); parts.AddRange(S.Skip(1).Take(1).DefaultIfEmpty(S.FirstOrDefault()).Where(x => x != null)); parts.AddRange(Pe.Take(1)); if (bifWord != null) parts.Add(bifWord); }
                 if (!parts.Any(w => Key(w) == Key(seedWord)) && parts.Count(w => Key(w).Contains("유산균")) < 2) parts.Add(seedWord);
 
@@ -211,6 +213,15 @@ namespace SalesTool
                     if (Len(outW) + 1 + w.Length > 50) continue;
                     if (Drift(w, job) || Weak.Contains(w)) continue;
                     outW.Add(w);
+                }
+                // PC마다 상품명 번호: 첫 단어 뒤 순서를 PC마다 다르게 섞음 (섞은 결과가 그대로면 한 칸 돌림)
+                if (Naming.PcStyle > 0 && outW.Count > 2)
+                {
+                    var rnd = new Random(Naming.PcStyle * 7919 + (job.Code ?? "").Sum(ch => (int)ch) * 31 + a * 7 + v);
+                    var tail0 = outW.Skip(1).ToList();
+                    var tail = tail0.OrderBy(x => rnd.Next()).ToList();
+                    if (tail.SequenceEqual(tail0)) tail = tail0.Skip(1).Concat(tail0.Take(1)).ToList();
+                    outW = outW.Take(1).Concat(tail).ToList();
                 }
                 // 같은 사업자의 두 번째 상품명이나 앞 사업자 상품명과 똑같으면: 첫 단어 뒤 순서를 뒤집고, 그래도 같으면 남은 단어를 더함
                 string res = string.Join(" ", outW);
