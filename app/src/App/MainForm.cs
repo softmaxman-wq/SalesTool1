@@ -358,8 +358,11 @@ namespace SalesTool
                     RefreshList();
                     try
                     {
-                        Action<string> step = m =>
+                        Action<string> step = null;
+                        step = m =>
                         {
+                            // 검색량·검색 흐름 조회는 뒤쪽 작업(다른 스레드)에서 진행 상황을 알려 옴 → 목록 화면은 화면 스레드에서만 고침 (다른 스레드에서 고치면 '응답 없음')
+                            if (InvokeRequired) { try { BeginInvoke(new Action(() => step(m))); } catch { } return; }
                             job.Step = m; Status("[" + job.Code + "] " + m); UpdateRow(job);
                             // 보안 확인이 뜨면 휴대폰으로 알림 (10분에 한 번만): 앱 [홈]에서 화면을 보고 바로 풀 수 있음
                             if ((m ?? "").Contains("보안 확인") && (DateTime.Now - lastCaptchaAlert).TotalMinutes >= 10)
