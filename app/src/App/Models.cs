@@ -122,7 +122,7 @@ namespace SalesTool
     {
         public string OrderMode = Orders.Volume;
         public double MaxRatio = 2;
-        public int DailyLimit = 20;
+        public int DailyLimit = 9999;   // 화면에 보여 주는 하루 개수 기준 (넣은 상품번호를 자르지 않음)
         public bool NaverPaused = false;    // (안 씀) 네이버는 항상 전시중으로 등록
         public bool CoupangApprove = false; // 쿠팡: 승인요청까지 (아니면 임시저장)
         public double NormalRate = 1.6;

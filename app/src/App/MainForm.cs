@@ -207,6 +207,7 @@ namespace SalesTool
             };
             orderTimer.Start();
             if (string.IsNullOrEmpty(set.MobileKey)) { set.MobileKey = NewKey(); Store.Save(Store.SettingsPath, set); }
+            if (set.DailyLimit == 20) { set.DailyLimit = 9999; Store.Save(Store.SettingsPath, set); }   // 예전 기본값 20 → 제한 없음
             if (set.PcStyle < 0) { set.PcStyle = new Random().Next(1, 1000); Store.Save(Store.SettingsPath, set); }
             if (string.IsNullOrWhiteSpace(set.GithubRepo)) { set.GithubRepo = "softmaxman-wq/SalesTool1"; Store.Save(Store.SettingsPath, set); }
             Naming.PcStyle = set.PcStyle;
@@ -324,7 +325,7 @@ namespace SalesTool
             int added = 0, skipped = 0;
             foreach (var c in codes)
             {
-                if (TodayCount() >= set.DailyLimit) { skipped++; continue; }
+                // 하루 최대 개수로 넣은 상품번호를 자르지 않음 (모두 대기열에 넣고 차례대로 만듦)
                 var old = jobs.FirstOrDefault(j => j.Code == c);
                 if (old != null && old.Status != "오류") { skipped++; continue; }
                 if (old != null) jobs.Remove(old);
@@ -333,7 +334,7 @@ namespace SalesTool
             }
             codesBox.Clear();
             RefreshList();
-            Status(added + "개를 대기열에 넣었습니다." + (skipped > 0 ? " (" + skipped + "개는 이미 있거나 오늘 " + set.DailyLimit + "개를 넘어서 뺐습니다)" : ""));
+            Status(added + "개를 대기열에 넣었습니다." + (skipped > 0 ? " (" + skipped + "개는 이미 목록에 있어서 뺐습니다)" : ""));
             Pump();
         }
 
