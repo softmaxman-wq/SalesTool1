@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -31,6 +31,24 @@ namespace SalesTool
             }
         }
 
+        // 공유 폴더가 연결 안 되면(네트워크·드라이브 끊김) 확인하는 데 수십 초 멈추므로 2초만 기다리고, 안 되면 5분 동안 건너뜀
+        static string okFolder; static DateTime okAt = DateTime.MinValue; static bool okVal;
+        public static bool Reachable(string folder)
+        {
+            if (string.IsNullOrWhiteSpace(folder)) return false;
+            folder = folder.Trim();
+            lock (syncLock) { if (okFolder == folder && DateTime.Now - okAt < TimeSpan.FromMinutes(5)) return okVal; }
+            bool r = false;
+            try
+            {
+                var t = System.Threading.Tasks.Task.Run(() => { try { if (!Directory.Exists(folder)) Directory.CreateDirectory(folder); return Directory.Exists(folder); } catch { return false; } });
+                r = t.Wait(2000) && t.Result;
+            }
+            catch { r = false; }
+            lock (syncLock) { okFolder = folder; okAt = DateTime.Now; okVal = r; }
+            return r;
+        }
+
         public static string GetFilePath(string folder)
         {
             if (string.IsNullOrWhiteSpace(folder)) return null;
@@ -41,9 +59,9 @@ namespace SalesTool
         public static void Append(string folder, string code, string businessId, string name, IEnumerable<string> keywords)
         {
             if (string.IsNullOrWhiteSpace(folder) || string.IsNullOrWhiteSpace(name)) return;
+            if (!Reachable(folder)) return;
             try
             {
-                if (!Directory.Exists(folder)) Directory.CreateDirectory(folder);
                 var path = GetFilePath(folder);
                 var rec = new SharedNameRecord
                 {
@@ -71,7 +89,7 @@ namespace SalesTool
         public static HashSet<string> GetUsedNames(string folder, string code)
         {
             var res = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            if (string.IsNullOrWhiteSpace(folder) || !Directory.Exists(folder)) return res;
+            if (!Reachable(folder)) return res;
             try
             {
                 var files = Directory.GetFiles(folder, "shared_names_*.jsonl");
@@ -109,7 +127,7 @@ namespace SalesTool
         public static List<HashSet<string>> GetUsedKeywordSets(string folder, string code)
         {
             var list = new List<HashSet<string>>();
-            if (string.IsNullOrWhiteSpace(folder) || !Directory.Exists(folder)) return list;
+            if (!Reachable(folder)) return list;
             try
             {
                 var files = Directory.GetFiles(folder, "shared_names_*.jsonl");

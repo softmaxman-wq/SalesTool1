@@ -238,6 +238,7 @@ namespace SalesTool
 
         async Task Startup()
         {
+            StartFreezeWatch();
             split.SplitterDistance = 440;
             WorkBig(false);
             RefreshList();
@@ -482,7 +483,45 @@ namespace SalesTool
             return j.Status;
         }
 
-        void Status(string m) { if (InvokeRequired) BeginInvoke(new Action(() => statusLabel.Text = m)); else statusLabel.Text = m; }
+        void Status(string m) { lastStatus = m; if (InvokeRequired) BeginInvoke(new Action(() => statusLabel.Text = m)); else statusLabel.Text = m; }
+
+        // 멈춤 기록: 화면(UI)이 10초 넘게 응답이 없으면 그때 하던 일을 freeze.log 에 남김 (원인 찾기용)
+        volatile string lastStatus = "";
+        long uiTick = DateTime.Now.Ticks;
+        void StartFreezeWatch()
+        {
+            var ui = new System.Windows.Forms.Timer { Interval = 1000 };
+            ui.Tick += (s, e) => System.Threading.Interlocked.Exchange(ref uiTick, DateTime.Now.Ticks);
+            ui.Start();
+            var th = new System.Threading.Thread(() =>
+            {
+                bool logged = false;
+                while (true)
+                {
+                    System.Threading.Thread.Sleep(2000);
+                    try
+                    {
+                        if (IsDisposed) return;
+                        double sec = (DateTime.Now.Ticks - System.Threading.Interlocked.Read(ref uiTick)) / (double)TimeSpan.TicksPerSecond;
+                        if (sec >= 10 && !logged)
+                        {
+                            logged = true;
+                            string run = "-";
+                            try { var j = jobs.ToArray().FirstOrDefault(x => x != null && x.Status == "진행 중"); if (j != null) run = j.Code + " " + (j.Step ?? ""); } catch { }
+                            int n = 0; try { n = Process.GetProcessesByName(Process.GetCurrentProcess().ProcessName).Length; } catch { }
+                            File.AppendAllText(Path.Combine(Store.Dir, "freeze.log"), DateTime.Now.ToString("MM-dd HH:mm:ss") + " 응답없음 시작 | 만드는 상품: " + run + " | 상태줄: " + lastStatus + " | 공유폴더: " + (set.SharedFolder ?? "") + " | 판매도구 켜진 개수: " + n + Environment.NewLine);
+                        }
+                        else if (sec < 3 && logged)
+                        {
+                            logged = false;
+                            File.AppendAllText(Path.Combine(Store.Dir, "freeze.log"), DateTime.Now.ToString("MM-dd HH:mm:ss") + " 다시 응답함" + Environment.NewLine);
+                        }
+                    }
+                    catch { }
+                }
+            }) { IsBackground = true, Name = "FreezeWatch" };
+            th.Start();
+        }
 
         // 작업 화면은 늘 왼쪽 아래에 보이므로 오른쪽 탭은 바꾸지 않음 (검토 중인 화면을 그대로 볼 수 있게)
         void ShowTab(string which) { }
@@ -2082,7 +2121,27 @@ namespace SalesTool
             {
                 try { File.AppendAllText(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "error.log"), DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss") + " " + e.Exception + Environment.NewLine + Environment.NewLine); } catch { }
             };
-            Application.Run(new MainForm());
+            // 판매도구는 한 번만 켜지게: 이미 켜져 있으면 (자동 업데이트로 다시 켜지는 중이면 앞 것이 꺼질 때까지 20초 기다림) 기존 창을 앞으로
+            bool own = false;
+            var mutex = new System.Threading.Mutex(false, "SalesTool_SingleInstance_v1");
+            try { own = mutex.WaitOne(TimeSpan.FromSeconds(20)); }
+            catch (System.Threading.AbandonedMutexException) { own = true; }
+            if (!own)
+            {
+                try
+                {
+                    var me = Process.GetCurrentProcess();
+                    foreach (var p in Process.GetProcessesByName(me.ProcessName))
+                        if (p.Id != me.Id && p.MainWindowHandle != IntPtr.Zero) { ShowWindow(p.MainWindowHandle, 9); SetForegroundWindow(p.MainWindowHandle); break; }
+                }
+                catch { }
+                MessageBox.Show("판매도구가 이미 켜져 있습니다. 켜져 있는 창을 쓰세요.\n(창이 안 보이거나 '응답 없음'이면 작업 관리자에서 판매도구를 모두 끝낸 뒤 다시 켜세요.)", "판매도구");
+                return;
+            }
+            try { Application.Run(new MainForm()); }
+            finally { try { mutex.ReleaseMutex(); } catch { } }
         }
+        [System.Runtime.InteropServices.DllImport("user32.dll")] static extern bool ShowWindow(IntPtr h, int cmd);
+        [System.Runtime.InteropServices.DllImport("user32.dll")] static extern bool SetForegroundWindow(IntPtr h);
     }
 }
